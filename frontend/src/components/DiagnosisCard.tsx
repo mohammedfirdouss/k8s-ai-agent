@@ -30,6 +30,27 @@ export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
     );
   }
 
+  // Backend healthy short-circuit: no critical issues were found.
+  if (diagnosis.root_cause === "No problems detected") {
+    return (
+      <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="text-sm font-semibold text-emerald-900">
+            No critical Kubernetes issues detected.
+          </h2>
+          {diagnosis.confidence !== null && (
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+              Confidence: {Math.round(diagnosis.confidence)}%
+            </span>
+          )}
+        </div>
+        <p className="mt-2 text-sm text-emerald-800">
+          Cluster appears healthy.
+        </p>
+      </section>
+    );
+  }
+
   const hasContent =
     diagnosis.root_cause ||
     diagnosis.explanation ||
