@@ -17,6 +17,28 @@ from app.core.config import settings
 # Hard limit so a hanging kubectl call can never freeze an investigation.
 KUBECTL_TIMEOUT_SECONDS = 30
 
+# Kubeconfig context the current investigation targets (None = default).
+# Set once at the start of an investigation; every kubectl call honors it.
+_context: "Optional[str]" = None
+
+
+def set_context(context: "Optional[str]") -> None:
+    """Select which kubeconfig context (cluster) kubectl should talk to."""
+    global _context
+    _context = context or None
+
+
+def list_contexts() -> dict:
+    """List the clusters (contexts) available in the kubeconfig."""
+    names = run_kubectl(["config", "get-contexts", "-o", "name"])
+    if not names.success:
+        return {"clusters": [], "current": None, "error": names.error}
+    clusters = [line.strip() for line in names.stdout.splitlines() if line.strip()]
+
+    current_result = run_kubectl(["config", "current-context"])
+    current = current_result.stdout.strip() if current_result.success else None
+    return {"clusters": clusters, "current": current, "error": None}
+
 
 @dataclass
 class KubectlResult:
@@ -48,6 +70,9 @@ def run_kubectl(args: list[str]) -> KubectlResult:
     command = ["kubectl", *args]
     if settings.KUBECONFIG_PATH:
         command += ["--kubeconfig", settings.KUBECONFIG_PATH]
+    # Context flags don't apply to `kubectl config ...` itself.
+    if _context and args and args[0] != "config":
+        command += ["--context", _context]
 
     logger.debug("Running: {}", " ".join(command))
     try:

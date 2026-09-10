@@ -43,12 +43,29 @@ class Diagnosis(BaseModel):
     error: Optional[str] = None
 
 
+class InvestigateRequest(BaseModel):
+    """Optional request body for /investigate."""
+
+    # Kubeconfig context (cluster) to investigate; default context when omitted.
+    context: Optional[str] = None
+
+
+class ClustersResponse(BaseModel):
+    """Response body for the /clusters endpoint."""
+
+    clusters: "list[str]"
+    current: Optional[str] = None
+    error: Optional[str] = None
+
+
 class InvestigateResponse(BaseModel):
     """Response body for the /investigate endpoint."""
 
     status: str
     diagnosis: Diagnosis
     investigation: InvestigationEvidence
+    # Beginner-friendly message set when the cluster itself was unreachable.
+    cluster_error: Optional[str] = None
 
 
 class InvestigationResult(BaseModel):

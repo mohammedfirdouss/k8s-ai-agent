@@ -1,0 +1,35 @@
+# Scenario 3 — OOMKilled caused by a memory limit far below what the app uses.
+# The container tries to allocate ~50MB while limited to 16Mi.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-worker
+  namespace: default
+  labels:
+    app: analytics-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-worker
+  template:
+    metadata:
+      labels:
+        app: analytics-worker
+    spec:
+      containers:
+        - name: worker
+          image: python:3.12-alpine
+          command:
+            - python
+            - -c
+            - |
+              print("analytics-worker starting, loading dataset into memory...")
+              data = []
+              while True:
+                  data.append(bytearray(1024 * 1024))  # grow ~1MB at a time
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 16Mi
