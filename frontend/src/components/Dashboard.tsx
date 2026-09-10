@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useInvestigate } from "@/hooks/useInvestigate";
 import { toErrorMessage } from "@/services/api";
 import { insforge, insforgeConfigured } from "@/services/insforge";
+import ClusterSelector from "@/components/ClusterSelector";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import HistoryList from "@/components/HistoryList";
 import InvestigationProgress from "@/components/InvestigationProgress";
@@ -15,12 +16,14 @@ type DashboardProps = {
 
 export default function Dashboard({ email, onSignedOut }: DashboardProps) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
   const { mutation, progress } = useInvestigate({
     onComplete: () => setHistoryRefreshKey((k) => k + 1),
   });
 
   const running = mutation.isPending;
-  const diagnosis = mutation.data?.diagnosis;
+  const clusterError = mutation.data?.cluster_error ?? null;
+  const diagnosis = clusterError ? undefined : mutation.data?.diagnosis;
 
   async function handleSignOut() {
     try {
@@ -60,10 +63,16 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
           </p>
         )}
 
+        <ClusterSelector
+          selected={selectedCluster}
+          onSelect={setSelectedCluster}
+          disabled={running}
+        />
+
         <div>
           <button
             type="button"
-            onClick={() => mutation.mutate()}
+            onClick={() => mutation.mutate(selectedCluster)}
             disabled={running}
             className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -84,6 +93,12 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
           </p>
         )}
 
+        {running && (
+          <p className="text-sm font-medium text-slate-900">
+            Investigating Kubernetes Cluster...
+          </p>
+        )}
+
         {(running || mutation.isSuccess) && progress && (
           <InvestigationProgress
             steps={
@@ -92,6 +107,17 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
                 : progress.steps
             }
           />
+        )}
+
+        {clusterError && (
+          <section className="rounded-lg border border-red-200 bg-red-50 p-5">
+            <h2 className="text-sm font-semibold text-red-900">
+              Cannot reach cluster
+            </h2>
+            <p className="mt-2 whitespace-pre-line text-sm text-red-800">
+              {clusterError}
+            </p>
+          </section>
         )}
 
         {diagnosis && <DiagnosisCard diagnosis={diagnosis} />}
