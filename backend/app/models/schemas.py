@@ -10,6 +10,27 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class InvestigationEvidence(BaseModel):
+    """Structured Kubernetes evidence gathered by the investigation layer.
+
+    Each section is a free-form dict produced by one inspector; the
+    exact shape is documented in `app.kubernetes.inspectors`.
+    """
+
+    pods: dict
+    logs: dict
+    events: dict
+    deployments: dict
+    network: dict
+
+
+class InvestigateResponse(BaseModel):
+    """Response body for the /investigate endpoint."""
+
+    status: str
+    investigation: InvestigationEvidence
+
+
 class InvestigationResult(BaseModel):
     """Result of a troubleshooting investigation (placeholder).
 
