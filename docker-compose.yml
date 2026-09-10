@@ -8,6 +8,14 @@ services:
         required: false
     environment:
       - CORS_ORIGINS=http://localhost:3000
+      - KUBECONFIG_PATH=/root/.kube/config
+    volumes:
+      # Give the container read-only access to your local kubeconfig so
+      # kubectl inside it can reach your cluster. Note: a cluster whose
+      # kubeconfig points at localhost/127.0.0.1 (minikube, kind, Docker
+      # Desktop) is not reachable from inside a container — run the
+      # backend locally with uvicorn for those setups.
+      - ${HOME}/.kube:/root/.kube:ro
     restart: unless-stopped
 
   frontend:
