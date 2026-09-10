@@ -6,6 +6,8 @@ single structured payload. No AI reasoning happens here — this layer
 only gathers evidence, like a junior DevOps engineer running kubectl.
 """
 
+from typing import Optional
+
 from loguru import logger
 
 from app.kubernetes.kubectl import run_kubectl, run_kubectl_json
@@ -55,7 +57,7 @@ MAX_LOG_LINES_PER_POD = 30
 MAX_EVENTS = 40
 
 
-def _pod_problem_state(pod: dict) -> str | None:
+def _pod_problem_state(pod: dict) -> Optional[str]:
     """Return the problematic state of a pod, or None if it looks healthy."""
     phase = pod.get("status", {}).get("phase", "")
     container_statuses = pod.get("status", {}).get("containerStatuses", [])

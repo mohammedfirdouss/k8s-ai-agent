@@ -1,5 +1,7 @@
 """Pydantic schemas used by the API."""
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -38,6 +40,6 @@ class InvestigationResult(BaseModel):
     Kubernetes inspectors and AI analysis are implemented.
     """
 
-    root_cause: str | None = None
-    suggested_fix: str | None = None
-    confidence: float | None = None
+    root_cause: Optional[str] = None
+    suggested_fix: Optional[str] = None
+    confidence: Optional[float] = None

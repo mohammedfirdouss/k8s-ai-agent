@@ -8,6 +8,7 @@ live in one place.
 import json
 import subprocess
 from dataclasses import dataclass, field
+from typing import Optional
 
 from loguru import logger
 
@@ -28,8 +29,14 @@ class KubectlResult:
 
     @property
     def error(self) -> str:
-        """Best available error text for reporting."""
-        return self.stderr.strip() or "kubectl command failed"
+        """Concise error text for reporting.
+
+        kubectl often prints many repeated client-go error lines; the last
+        line ("The connection to the server ... was refused") is the
+        human-readable summary, so report that one.
+        """
+        lines = [line for line in self.stderr.strip().splitlines() if line.strip()]
+        return lines[-1] if lines else "kubectl command failed"
 
 
 def run_kubectl(args: list[str]) -> KubectlResult:
@@ -64,7 +71,7 @@ def run_kubectl(args: list[str]) -> KubectlResult:
     return KubectlResult(success=True, stdout=completed.stdout, stderr=completed.stderr, command=command)
 
 
-def run_kubectl_json(args: list[str]) -> tuple[dict | None, str | None]:
+def run_kubectl_json(args: list[str]) -> "tuple[Optional[dict], Optional[str]]":
     """Run a kubectl command with `-o json` and parse the output.
 
     Returns (parsed_json, None) on success or (None, error_message) on failure.
