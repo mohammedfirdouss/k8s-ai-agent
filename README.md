@@ -95,11 +95,8 @@ Lets users trigger investigations, watch live progress, and view the diagnosis, 
 
 ### 5. Deployment
 
-The frontend and backend are deployed via **InsForge**, which generates a public URL:
+The frontend and backend are deployed via **InsForge**, which generates a public URL
 
-```text
-https://ai-k8s-agent.public-url.app
-```
 
 ## End-to-End Workflow
 
