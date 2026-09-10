@@ -6,11 +6,47 @@ export interface HealthResponse {
   timestamp?: string;
 }
 
-export interface InvestigationResult {
+// AI diagnosis returned by POST /investigate. All fields are nullable; when
+// `error` is set, AI analysis failed and the other fields are null.
+export interface Diagnosis {
+  root_cause: string | null;
+  explanation: string | null;
+  fix: string | null;
+  kubectl_commands: string[] | null;
+  prevention: string | null;
+  confidence: number | null;
+  confidence_reasoning: string | null;
+  error: string | null;
+}
+
+export interface InvestigateResponse {
+  status: string;
+  diagnosis: Diagnosis;
+  investigation: {
+    pods?: unknown;
+    logs?: unknown;
+    events?: unknown;
+    deployments?: unknown;
+    network?: unknown;
+  };
+}
+
+export interface ProgressStep {
+  name: string;
+  status: "pending" | "running" | "done";
+}
+
+export interface ProgressResponse {
+  running: boolean;
+  steps: ProgressStep[];
+}
+
+// Row shape of the InsForge `investigations` table.
+export interface InvestigationRow {
   id: string;
-  cluster: string;
-  summary: string;
-  findings: string[];
-  recommendations: string[];
-  createdAt: string;
+  created_at: string;
+  root_cause: string | null;
+  namespace: string | null;
+  confidence: number | null;
+  status: string | null;
 }
