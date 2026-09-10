@@ -26,10 +26,28 @@ class InvestigationEvidence(BaseModel):
     network: dict
 
 
+class Diagnosis(BaseModel):
+    """AI-generated diagnosis of the cluster's problems.
+
+    `error` is set (and the other fields empty) when AI analysis could
+    not run — for example when no OpenRouter API key is configured.
+    """
+
+    root_cause: Optional[str] = None
+    explanation: Optional[str] = None
+    fix: Optional[str] = None
+    kubectl_commands: "list[str]" = []
+    prevention: Optional[str] = None
+    confidence: Optional[float] = None
+    confidence_reasoning: Optional[str] = None
+    error: Optional[str] = None
+
+
 class InvestigateResponse(BaseModel):
     """Response body for the /investigate endpoint."""
 
     status: str
+    diagnosis: Diagnosis
     investigation: InvestigationEvidence
 
 

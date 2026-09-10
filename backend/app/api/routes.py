@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.ai.agent import analyze
 from app.models.schemas import HealthResponse, InvestigateResponse
 from app.services.investigation import run_investigation
 
@@ -20,10 +21,12 @@ async def health_check() -> HealthResponse:
 
 @router.post("/investigate", response_model=InvestigateResponse, tags=["investigation"])
 def investigate() -> InvestigateResponse:
-    """Run a cluster investigation and return the gathered evidence.
+    """Investigate the cluster and return an AI diagnosis with the evidence.
 
-    Defined as a sync function on purpose: kubectl calls are blocking,
-    so FastAPI runs this in a worker thread instead of the event loop.
+    Defined as a sync function on purpose: kubectl and LLM calls are
+    blocking, so FastAPI runs this in a worker thread instead of the
+    event loop.
     """
     evidence = run_investigation()
-    return InvestigateResponse(status="success", investigation=evidence)
+    diagnosis = analyze(evidence)
+    return InvestigateResponse(status="success", diagnosis=diagnosis, investigation=evidence)
