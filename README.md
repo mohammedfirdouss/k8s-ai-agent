@@ -148,7 +148,82 @@ flowchart TD
 
 ## Tech Stack
 
-- **Backend:** FastAPI (orchestration layer)
+- **Backend:** FastAPI, Python 3.12, Uvicorn, Pydantic, Loguru, HTTPX
+- **Frontend:** Next.js 15, TypeScript, Tailwind CSS, Axios, React Query
 - **AI:** OpenRouter API (Claude, GPT, DeepSeek) via InsForge
 - **Platform:** InsForge (auth, database, realtime, deployment)
 - **Cluster access:** kubectl / Kubernetes API
+- **Infrastructure:** Docker, Docker Compose
+
+## Project Structure
+
+```text
+k8s-ai-agent/
+├── backend/            # FastAPI orchestration service
+│   └── app/
+│       ├── api/        # HTTP routes (health, investigations)
+│       ├── core/       # Configuration and settings
+│       ├── kubernetes/ # Cluster inspectors (pods, logs, events, ...)
+│       ├── ai/         # Prompt building and LLM reasoning
+│       ├── services/   # Investigation orchestration
+│       └── models/     # Pydantic schemas
+├── frontend/           # Next.js dashboard
+│   └── src/
+│       ├── app/        # Pages and layout
+│       ├── components/ # UI components
+│       ├── services/   # API client
+│       ├── hooks/      # React Query hooks
+│       └── types/      # TypeScript interfaces
+├── docs/               # Additional documentation
+└── docker-compose.yml
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Docker and Docker Compose (for the containerized setup), or
+- Python 3.12+ and Node.js 20+ (for local development)
+
+### Run with Docker (recommended)
+
+```bash
+docker compose up --build
+```
+
+- Frontend: <http://localhost:3000>
+- Backend health check: <http://localhost:8000/health>
+
+### Run locally without Docker
+
+Backend:
+
+```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Frontend (in a second terminal):
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # points the UI at http://localhost:8000
+npm run dev
+```
+
+### Configuration
+
+Copy `backend/.env.example` to `backend/.env` and fill in the values when you are ready to enable AI analysis and cluster access:
+
+```env
+OPENROUTER_API_KEY=   # LLM access via OpenRouter
+OPENROUTER_MODEL=     # e.g. a Claude, GPT, or DeepSeek model id
+KUBECONFIG_PATH=      # path to the kubeconfig of the target cluster
+```
+
+The `.env` file is optional at this stage — the app runs with only the health endpoint and placeholder logic.
+
+See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md) for service-specific details.
