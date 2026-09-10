@@ -224,6 +224,15 @@ OPENROUTER_MODEL=     # e.g. a Claude, GPT, or DeepSeek model id
 KUBECONFIG_PATH=      # path to the kubeconfig of the target cluster
 ```
 
-The `.env` file is optional at this stage — the app runs with only the health endpoint and placeholder logic.
+The backend `.env` is optional — without an OpenRouter key the app still gathers evidence and reports that AI analysis is disabled.
+
+For login and investigation history, create an [InsForge](https://insforge.dev) project and set these in `frontend/.env.local`:
+
+```env
+NEXT_PUBLIC_INSFORGE_BASE_URL=   # your InsForge backend URL
+NEXT_PUBLIC_INSFORGE_ANON_KEY=   # the project's anon key
+```
+
+Then create an `investigations` table in InsForge with columns: `id` (uuid, pk, default), `created_at` (timestamptz, default now()), `root_cause` (text), `namespace` (text), `confidence` (numeric), `status` (text). Without these variables the app runs in a no-login mode with history disabled.
 
 See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md) for service-specific details.
