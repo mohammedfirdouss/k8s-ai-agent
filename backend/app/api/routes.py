@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.ai.agent import analyze
 from app.models.schemas import HealthResponse, InvestigateResponse
+from app.services import progress
 from app.services.investigation import run_investigation
 
 router = APIRouter()
@@ -27,6 +28,22 @@ def investigate() -> InvestigateResponse:
     blocking, so FastAPI runs this in a worker thread instead of the
     event loop.
     """
-    evidence = run_investigation()
-    diagnosis = analyze(evidence)
+    progress.reset()
+    try:
+        evidence = run_investigation()
+        progress.start_step("AI Reasoning")
+        diagnosis = analyze(evidence)
+        progress.finish_step("AI Reasoning")
+    finally:
+        progress.finish()
     return InvestigateResponse(status="success", diagnosis=diagnosis, investigation=evidence)
+
+
+@router.get("/investigate/progress", tags=["investigation"])
+async def investigation_progress() -> dict:
+    """Live progress of the current (or last) investigation.
+
+    The frontend polls this while POST /investigate is running to show
+    step-by-step status.
+    """
+    return progress.snapshot()
