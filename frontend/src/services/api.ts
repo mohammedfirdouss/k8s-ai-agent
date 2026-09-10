@@ -1,5 +1,6 @@
 import axios from "axios";
 import type {
+  ClustersResponse,
   HealthResponse,
   InvestigateResponse,
   ProgressResponse,
@@ -17,12 +18,23 @@ export async function getHealth(): Promise<HealthResponse> {
   return response.data;
 }
 
+// Lists the kubeconfig contexts available on the backend host.
+export async function getClusters(): Promise<ClustersResponse> {
+  const response = await api.get<ClustersResponse>("/clusters");
+  return response.data;
+}
+
 // Runs a full cluster investigation. This can take up to ~2 minutes
 // (kubectl collection + LLM analysis), hence the long timeout.
-export async function investigate(): Promise<InvestigateResponse> {
-  const response = await api.post<InvestigateResponse>("/investigate", null, {
-    timeout: 180_000,
-  });
+// Pass a kubeconfig context name to investigate a specific cluster.
+export async function investigate(
+  context?: string | null,
+): Promise<InvestigateResponse> {
+  const response = await api.post<InvestigateResponse>(
+    "/investigate",
+    context ? { context } : null,
+    { timeout: 180_000 },
+  );
   return response.data;
 }
 

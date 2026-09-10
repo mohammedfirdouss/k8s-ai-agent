@@ -22,6 +22,9 @@ export interface Diagnosis {
 export interface InvestigateResponse {
   status: string;
   diagnosis: Diagnosis;
+  // Set when the selected cluster was unreachable. Contains a
+  // beginner-friendly multi-line message; the diagnosis is empty then.
+  cluster_error: string | null;
   investigation: {
     pods?: unknown;
     logs?: unknown;
@@ -29,6 +32,13 @@ export interface InvestigateResponse {
     deployments?: unknown;
     network?: unknown;
   };
+}
+
+// Kubeconfig contexts available on the backend host (GET /clusters).
+export interface ClustersResponse {
+  clusters: string[];
+  current: string | null;
+  error: string | null;
 }
 
 export interface ProgressStep {

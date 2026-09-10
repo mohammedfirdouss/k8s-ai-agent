@@ -26,7 +26,7 @@ async function saveHistory(result: InvestigateResponse): Promise<void> {
 // polls the backend progress endpoint every 800ms.
 export function useInvestigate(options?: { onComplete?: () => void }) {
   const mutation = useMutation({
-    mutationFn: investigate,
+    mutationFn: (context?: string | null) => investigate(context),
     onSuccess: (data) => {
       void saveHistory(data).then(() => options?.onComplete?.());
     },
