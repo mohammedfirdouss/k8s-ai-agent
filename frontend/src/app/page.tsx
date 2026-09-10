@@ -1,31 +1,45 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import Dashboard from "@/components/Dashboard";
+import LoginForm from "@/components/LoginForm";
+import { insforge, insforgeConfigured } from "@/services/insforge";
+
 export default function Home() {
-  const handleInvestigate = () => {
-    // Placeholder: will trigger a cluster investigation via the backend API.
-    console.log("Investigate Cluster clicked");
-  };
+  // When InsForge is configured we first check for an existing session.
+  const [checkingSession, setCheckingSession] = useState(insforgeConfigured);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-6">
-      <div className="w-full max-w-md text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          AI Kubernetes Agent
-        </h1>
-        <p className="mt-3 text-base text-slate-600">
-          Troubleshoot Kubernetes with AI
-        </p>
+  useEffect(() => {
+    if (!insforgeConfigured || !insforge) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await insforge.auth.getCurrentUser();
+        if (!cancelled && data?.user?.email) {
+          setUserEmail(data.user.email);
+        }
+      } catch {
+        // No session or InsForge unreachable — fall through to the login form.
+      }
+      if (!cancelled) setCheckingSession(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-        <button
-          type="button"
-          onClick={handleInvestigate}
-          className="mt-8 rounded-md bg-slate-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
-        >
-          Investigate Cluster
-        </button>
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-slate-500">Loading...</p>
+      </main>
+    );
+  }
 
-        <p className="mt-8 text-sm text-slate-500">System Status: Ready</p>
-      </div>
-    </main>
-  );
+  if (insforgeConfigured && !userEmail) {
+    return <LoginForm onSignedIn={setUserEmail} />;
+  }
+
+  return <Dashboard email={userEmail} onSignedOut={() => setUserEmail(null)} />;
 }
