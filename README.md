@@ -80,23 +80,23 @@ flowchart LR
 Lets users trigger investigations, watch live progress, and view the diagnosis, suggested fixes, and history.
 
 ```text
-┌─────────────────────────────────────┐
-│ Incident: Payment Service Failure   │
-│ Status: Investigating...            │
-│                                     │
-│ ✓ Pods Checked                      │
-│ ✓ Events Analyzed                   │
-│ ✓ Logs Processed                    │
-│                                     │
-│ Root Cause: ImagePullBackOff        │
-│ Suggested Fix: Update image tag     │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│ Incident: Orders API returning 503       │
+│ Status: Investigating...                 │
+│                                          │
+│ ✓ Pods Checked                           │
+│ ✓ Events Analyzed                        │
+│ ✓ Services Inspected                     │
+│                                          │
+│ Root Cause: Service selector mismatch    │
+│ Suggested Fix: Align service selector    │
+│ with deployment pod labels               │
+└──────────────────────────────────────────┘
 ```
 
 ### 5. Deployment
 
-The frontend and backend are deployed via **InsForge**, which generates a public URL
-
+The frontend and backend are deployed via **InsForge**, which generates a public URL.
 
 ## End-to-End Workflow
 
