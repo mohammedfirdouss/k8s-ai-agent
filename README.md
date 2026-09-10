@@ -1,6 +1,6 @@
 # AI Kubernetes Troubleshooting Agent
 
-An AI-powered platform that investigates Kubernetes failures, analyzes logs, events, and cluster state, identifies root causes, and suggests fixes — with full investigation history and a public web dashboard.
+An AI-powered platform that investigates Kubernetes failures, analyzes logs, events, and cluster state, identifies root causes, and suggests fixes with full investigation history and a public web dashboard.
 
 ## What It Does
 
