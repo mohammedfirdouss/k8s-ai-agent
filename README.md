@@ -4,7 +4,7 @@ An AI-powered platform that investigates Kubernetes failures, analyzes logs, eve
 
 ## Demo
 
-<!-- https://github.com/user-attachments/assets/28e9d330-4219-420e-bcb6-130cb9be881c -->
+https://github.com/user-attachments/assets/28e9d330-4219-420e-bcb6-130cb9be881c
 
 ![Each step of the investigation ticks off live while the agent collects evidence and the AI reasons over it](docs/screenshots/progress.jpg)
 
