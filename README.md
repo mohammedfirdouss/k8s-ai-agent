@@ -2,6 +2,16 @@
 
 An AI-powered platform that investigates Kubernetes failures, analyzes logs, events, and cluster state, identifies root causes, and suggests fixes with full investigation history and a public web dashboard.
 
+## Demo
+
+<!-- Drag the demo video (k8s-agent-demo.mp4) into this spot on GitHub to embed it. -->
+
+![Each step of the investigation ticks off live while the agent collects evidence and the AI reasons over it](docs/screenshots/progress.jpg)
+
+![The diagnosis: root cause, explanation, suggested fix, kubectl commands and a confidence score, for a test cluster with three broken apps](docs/screenshots/diagnosis.jpg)
+
+![Past investigations are saved with their root cause and confidence](docs/screenshots/history.jpg)
+
 ## What It Does
 
 - **Investigates** Kubernetes failures automatically
