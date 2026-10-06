@@ -4,7 +4,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: analytics-worker
-  namespace: default
   labels:
     app: analytics-worker
 spec:
