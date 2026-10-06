@@ -22,3 +22,6 @@ backend/.env
 backend/.venv
 __pycache__/
 .pytest_cache/
+
+# Eval run outputs (fixtures are committed)
+backend/evals/results/
