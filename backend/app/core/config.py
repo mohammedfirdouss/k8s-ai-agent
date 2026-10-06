@@ -10,12 +10,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """All configuration for the service, loaded from the environment."""
 
-    # AI provider (OpenRouter) — not used yet, wired up later.
+    # AI provider (OpenRouter).
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = ""
 
     # Path to the kubeconfig file used to talk to the cluster.
     KUBECONFIG_PATH: str = ""
+
+    # InsForge project URL. When set, every API call (except /health) must
+    # carry a valid InsForge user access token. Leave empty for local,
+    # single-user mode with no login.
+    INSFORGE_URL: str = ""
+    # InsForge admin API key, used only server-side to write investigation
+    # history on the user's behalf. Never expose it to the frontend.
+    INSFORGE_API_KEY: str = ""
 
     # Comma-separated list of origins allowed to call this API.
     CORS_ORIGINS: str = "http://localhost:3000"

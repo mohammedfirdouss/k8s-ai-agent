@@ -13,7 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.routes import router as api_router
+from app.core.auth import auth_enabled
 from app.core.config import settings
+from app.services.history import history_enabled
 
 
 def configure_logging() -> None:
@@ -47,6 +49,15 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
 
     logger.info("Application configured. Allowed CORS origins: {}", settings.cors_origins_list)
+    if auth_enabled():
+        logger.info("Authentication enabled: requests require an InsForge user token")
+        if not history_enabled():
+            logger.warning("INSFORGE_API_KEY is not set — investigation history will not be saved")
+    else:
+        logger.warning(
+            "INSFORGE_URL is not set — running in local single-user mode with NO authentication. "
+            "Do not expose this backend to a network."
+        )
     return app
 
 

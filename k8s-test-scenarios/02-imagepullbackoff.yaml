@@ -3,7 +3,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web-frontend
-  namespace: default
   labels:
     app: web-frontend
 spec:

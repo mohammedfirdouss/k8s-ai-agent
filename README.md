@@ -236,13 +236,18 @@ KUBECONFIG_PATH=      # path to the kubeconfig of the target cluster
 
 The backend `.env` is optional — without an OpenRouter key the app still gathers evidence and reports that AI analysis is disabled.
 
-For login and investigation history, create an [InsForge](https://insforge.dev) project and set these in `frontend/.env.local`:
+For login and investigation history, create an [InsForge](https://insforge.dev) project, apply the SQL in `migrations/` (`npx -y @insforge/cli db migrations up --all`), and set:
 
 ```env
+# frontend/.env.local
 NEXT_PUBLIC_INSFORGE_BASE_URL=   # your InsForge backend URL
 NEXT_PUBLIC_INSFORGE_ANON_KEY=   # the project's anon key
+
+# backend/.env
+INSFORGE_URL=                    # same InsForge URL — turns on API authentication
+INSFORGE_API_KEY=                # admin key, server-side only — saves history
 ```
 
-Then create an `investigations` table in InsForge with columns: `id` (uuid, pk, default), `created_at` (timestamptz, default now()), `root_cause` (text), `namespace` (text), `confidence` (numeric), `status` (text). Without these variables the app runs in a no-login mode with history disabled.
+With `INSFORGE_URL` set, the backend rejects requests without a valid signed-in user token, and each user only sees their own investigation history. Without these variables the app runs in a local, single-user, no-login mode — don't expose the backend to a network in that mode.
 
 See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md) for service-specific details.

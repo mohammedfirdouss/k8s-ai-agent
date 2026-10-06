@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { insforge } from "@/services/insforge";
+import type { SignedInUser } from "@/types";
 
 type LoginFormProps = {
-  onSignedIn: (email: string) => void;
+  onSignedIn: (user: SignedInUser) => void;
 };
 
 export default function LoginForm({ onSignedIn }: LoginFormProps) {
@@ -20,8 +21,9 @@ export default function LoginForm({ onSignedIn }: LoginFormProps) {
     setSubmitting(true);
     setError(null);
     try {
+      let user: { id: string; email: string } | null | undefined;
       if (mode === "signup") {
-        const { error: signUpError } = await insforge.auth.signUp({
+        const { data, error: signUpError } = await insforge.auth.signUp({
           email,
           password,
           name: email.split("@")[0],
@@ -30,8 +32,9 @@ export default function LoginForm({ onSignedIn }: LoginFormProps) {
           setError(signUpError.message ?? "Sign up failed.");
           return;
         }
+        user = data?.user;
       } else {
-        const { error: signInError } = await insforge.auth.signInWithPassword({
+        const { data, error: signInError } = await insforge.auth.signInWithPassword({
           email,
           password,
         });
@@ -39,8 +42,13 @@ export default function LoginForm({ onSignedIn }: LoginFormProps) {
           setError(signInError.message ?? "Sign in failed.");
           return;
         }
+        user = data?.user;
       }
-      onSignedIn(email);
+      if (!user?.id) {
+        setError("Signed in, but no user session was returned. Please try again.");
+        return;
+      }
+      onSignedIn({ id: user.id, email: user.email });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {

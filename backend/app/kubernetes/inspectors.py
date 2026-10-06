@@ -10,7 +10,8 @@ from typing import Optional
 
 from loguru import logger
 
-from app.kubernetes.kubectl import run_kubectl, run_kubectl_json
+from app.kubernetes.kubectl import Kubectl
+from app.kubernetes.redact import redact
 
 # Container/pod states we consider problematic.
 PROBLEM_POD_STATES = {
@@ -55,12 +56,21 @@ LOG_ERROR_MARKERS = (
 # Caps that keep the payload small enough for an LLM prompt later.
 MAX_LOG_LINES_PER_POD = 30
 MAX_EVENTS = 40
+MAX_LABEL_CANDIDATES = 5
 
 
 def _pod_problem_state(pod: dict) -> Optional[str]:
     """Return the problematic state of a pod, or None if it looks healthy."""
     phase = pod.get("status", {}).get("phase", "")
+    if phase == "Succeeded":
+        return None
     container_statuses = pod.get("status", {}).get("containerStatuses", [])
+
+    # A stuck init container blocks the whole pod, so report it first.
+    for container in pod.get("status", {}).get("initContainerStatuses", []):
+        waiting_reason = container.get("state", {}).get("waiting", {}).get("reason", "")
+        if waiting_reason in PROBLEM_POD_STATES:
+            return f"Init:{waiting_reason}"
 
     for container in container_statuses:
         state = container.get("state", {})
@@ -78,12 +88,62 @@ def _pod_problem_state(pod: dict) -> Optional[str]:
 
     if phase in ("Pending", "Failed"):
         return phase
+
+    # Running but failing its readiness probe: receives no traffic.
+    if phase == "Running" and any(
+        "running" in c.get("state", {}) and not c.get("ready") for c in container_statuses
+    ):
+        return "NotReady"
     return None
 
 
-def inspect_pods() -> dict:
+def _pod_key(pod: dict) -> str:
+    return f'{pod["metadata"]["namespace"]}/{pod["metadata"]["name"]}'
+
+
+def _workload(pod: dict) -> Optional[str]:
+    """The controller that owns a pod, e.g. "Deployment/payment-service"."""
+    owners = pod.get("metadata", {}).get("ownerReferences") or []
+    if not owners:
+        return None
+    owner = owners[0]
+    kind, name = owner.get("kind", ""), owner.get("name", "")
+    # Deployment pods are owned by a ReplicaSet named <deployment>-<hash>.
+    if kind == "ReplicaSet" and "-" in name:
+        return f"Deployment/{name.rsplit('-', 1)[0]}"
+    return f"{kind}/{name}"
+
+
+def _container_details(pod: dict) -> "list[dict]":
+    """Image, resource limits and last termination of each container."""
+    statuses = {c.get("name"): c for c in pod.get("status", {}).get("containerStatuses", [])}
+    details = []
+    for container in pod.get("spec", {}).get("containers", []):
+        status = statuses.get(container.get("name"), {})
+        last = status.get("lastState", {}).get("terminated") or status.get("state", {}).get("terminated") or {}
+        details.append(
+            {
+                "name": container.get("name"),
+                "image": container.get("image"),
+                "limits": container.get("resources", {}).get("limits", {}),
+                "last_exit_code": last.get("exitCode"),
+                "last_termination_reason": last.get("reason"),
+            }
+        )
+    return details
+
+
+def _pod_states(kube: Kubectl) -> "Optional[dict[str, Optional[str]]]":
+    """Map "namespace/name" -> problem state (None when healthy), or None on error."""
+    data, error = kube.run_json(["get", "pods", "-A"])
+    if error:
+        return None
+    return {_pod_key(pod): _pod_problem_state(pod) for pod in data.get("items", [])}
+
+
+def inspect_pods(kube: Kubectl) -> dict:
     """Check all pods and report the unhealthy ones."""
-    data, error = run_kubectl_json(["get", "pods", "-A"])
+    data, error = kube.run_json(["get", "pods", "-A"])
     if error:
         return {"healthy": None, "error": error, "problematic_pods": []}
 
@@ -100,8 +160,10 @@ def inspect_pods() -> dict:
             {
                 "name": pod["metadata"]["name"],
                 "namespace": pod["metadata"]["namespace"],
+                "workload": _workload(pod),
                 "status": state,
                 "restarts": restart_count,
+                "containers": _container_details(pod),
             }
         )
 
@@ -115,7 +177,7 @@ def inspect_pods() -> dict:
 
 def _significant_lines(log_text: str) -> list[str]:
     """Keep only lines that look like failures, capped for brevity."""
-    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    lines = [redact(line.strip()) for line in log_text.splitlines() if line.strip()]
     significant = [
         line for line in lines if any(marker in line.lower() for marker in LOG_ERROR_MARKERS)
     ]
@@ -126,17 +188,17 @@ def _significant_lines(log_text: str) -> list[str]:
     return significant[-MAX_LOG_LINES_PER_POD:]
 
 
-def collect_logs(problematic_pods: list[dict]) -> dict:
+def collect_logs(kube: Kubectl, problematic_pods: list[dict]) -> dict:
     """Fetch concise, failure-focused logs for each problematic pod."""
     logs: dict[str, dict] = {}
     for pod in problematic_pods:
         name, namespace = pod["name"], pod["namespace"]
-        result = run_kubectl(["logs", name, "-n", namespace, "--tail", "100"])
+        result = kube.run(["logs", name, "-n", namespace, "--tail", "100"])
 
         # A crash-looping container often has no current logs; the
         # previous (crashed) container's logs hold the real error.
         if (not result.success or not result.stdout.strip()):
-            previous = run_kubectl(["logs", name, "-n", namespace, "--tail", "100", "--previous"])
+            previous = kube.run(["logs", name, "-n", namespace, "--tail", "100", "--previous"])
             if previous.success and previous.stdout.strip():
                 result = previous
 
@@ -150,37 +212,69 @@ def collect_logs(problematic_pods: list[dict]) -> dict:
     return {"pods_with_logs": len(logs), "logs": logs}
 
 
-def analyze_events() -> dict:
-    """Read cluster events and summarize the failure-related ones."""
-    data, error = run_kubectl_json(["get", "events", "-A"])
+def _event_time(event: dict) -> str:
+    """Sortable timestamp of an event's most recent occurrence."""
+    return (
+        event.get("lastTimestamp")
+        or (event.get("series") or {}).get("lastObservedTime")
+        or event.get("eventTime")
+        or event.get("firstTimestamp")
+        or event.get("metadata", {}).get("creationTimestamp")
+        or ""
+    )
+
+
+def analyze_events(kube: Kubectl) -> dict:
+    """Read cluster events and summarize the failure-related ones.
+
+    Events outlive the problems they describe (they are kept for an hour by
+    default), so warnings about pods that have since become healthy, or no
+    longer exist, are dropped: they describe resolved issues and mislead the
+    diagnosis. The number dropped is reported instead.
+    """
+    data, error = kube.run_json(["get", "events", "-A"])
     if error:
         return {"error": error, "findings": []}
+    pod_states = _pod_states(kube)
 
     findings = []
-    for event in data.get("items", []):
+    resolved = 0
+    events = sorted(data.get("items", []), key=_event_time)
+    for event in events:
         reason = event.get("reason", "")
         if event.get("type") != "Warning" and reason not in PROBLEM_EVENT_REASONS:
             continue
         involved = event.get("involvedObject", {})
+        if involved.get("kind") == "Pod" and pod_states is not None:
+            key = f'{involved.get("namespace", "")}/{involved.get("name", "")}'
+            if pod_states.get(key) is None:  # healthy now, or gone
+                resolved += 1
+                continue
         findings.append(
             {
                 "reason": reason,
                 "type": event.get("type", ""),
                 "object": f'{involved.get("kind", "")}/{involved.get("name", "")}',
                 "namespace": involved.get("namespace", ""),
-                "message": event.get("message", "")[:300],
+                "message": redact(event.get("message", ""))[:300],
                 "count": event.get("count", 1),
+                "last_seen": _event_time(event) or None,
             }
         )
 
-    findings = findings[-MAX_EVENTS:]
-    logger.info("Event analysis: {} failure-related events", len(findings))
-    return {"error": None, "total_findings": len(findings), "findings": findings}
+    findings = findings[-MAX_EVENTS:]  # newest last, so keep the most recent
+    logger.info("Event analysis: {} failure-related events ({} resolved, omitted)", len(findings), resolved)
+    return {
+        "error": None,
+        "total_findings": len(findings),
+        "resolved_events_omitted": resolved,
+        "findings": findings,
+    }
 
 
-def inspect_deployments() -> dict:
+def inspect_deployments(kube: Kubectl) -> dict:
     """Check deployments for missing replicas and failed rollouts."""
-    data, error = run_kubectl_json(["get", "deployments", "-A"])
+    data, error = kube.run_json(["get", "deployments", "-A"])
     if error:
         return {"healthy": None, "error": error, "unhealthy_deployments": []}
 
@@ -193,7 +287,7 @@ def inspect_deployments() -> dict:
         unavailable = status.get("unavailableReplicas", 0)
 
         failed_conditions = [
-            {"type": c.get("type"), "reason": c.get("reason"), "message": c.get("message", "")[:300]}
+            {"type": c.get("type"), "reason": c.get("reason"), "message": redact(c.get("message", ""))[:300]}
             for c in status.get("conditions", [])
             if c.get("status") == "False"
         ]
@@ -220,10 +314,10 @@ def inspect_deployments() -> dict:
     }
 
 
-def inspect_network() -> dict:
+def inspect_network(kube: Kubectl) -> dict:
     """Check services for selector/endpoint problems and DNS health."""
-    services_data, services_error = run_kubectl_json(["get", "svc", "-A"])
-    endpoints_data, endpoints_error = run_kubectl_json(["get", "endpoints", "-A"])
+    services_data, services_error = kube.run_json(["get", "svc", "-A"])
+    endpoints_data, endpoints_error = kube.run_json(["get", "endpoints", "-A"])
     if services_error or endpoints_error:
         return {"healthy": None, "error": services_error or endpoints_error, "issues": []}
 
@@ -233,6 +327,13 @@ def inspect_network() -> dict:
         key = f'{endpoint["metadata"]["namespace"]}/{endpoint["metadata"]["name"]}'
         has_addresses = any(subset.get("addresses") for subset in endpoint.get("subsets") or [])
         endpoints_ready[key] = has_addresses
+
+    pods_data, pods_error = kube.run_json(["get", "pods", "-A"])
+    labels_by_namespace: "dict[str, list[dict]]" = {}
+    for pod in [] if pods_error else pods_data.get("items", []):
+        labels_by_namespace.setdefault(pod["metadata"]["namespace"], []).append(
+            {"pod": pod["metadata"]["name"], "labels": pod["metadata"].get("labels", {})}
+        )
 
     issues = []
     services = services_data.get("items", [])
@@ -247,13 +348,24 @@ def inspect_network() -> dict:
             continue
 
         if not endpoints_ready.get(f"{namespace}/{name}", False):
+            selector = spec.get("selector", {})
+            candidates = labels_by_namespace.get(namespace, [])
+            matching = [
+                c["pod"] for c in candidates
+                if all(c["labels"].get(k) == v for k, v in selector.items())
+            ]
             issues.append(
                 {
                     "service": name,
                     "namespace": namespace,
                     "problem": "no ready endpoints",
-                    "hint": "selector may not match any healthy pod labels",
-                    "selector": spec.get("selector", {}),
+                    "selector": selector,
+                    # Pods the selector matches (if any exist, they are not
+                    # Ready); when empty, the selector matches no pod at all.
+                    "pods_matching_selector": matching,
+                    # Labels of pods in the same namespace, to compare
+                    # against the selector.
+                    "pod_labels_in_namespace": candidates[:MAX_LABEL_CANDIDATES],
                 }
             )
 

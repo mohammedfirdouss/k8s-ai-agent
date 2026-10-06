@@ -31,16 +31,11 @@ NEXT_PUBLIC_INSFORGE_ANON_KEY=   # anon key (optional)
 When `NEXT_PUBLIC_INSFORGE_BASE_URL` is empty, the app runs without login and
 history and shows a small notice instead.
 
-Create an `investigations` table in InsForge with these columns:
-
-| column     | type        | default             |
-| ---------- | ----------- | ------------------- |
-| id         | uuid (pk)   | generated (default) |
-| created_at | timestamptz | now()               |
-| root_cause | text        |                     |
-| namespace  | text        |                     |
-| confidence | numeric     |                     |
-| status     | text        |                     |
+The `investigations` table, its owner-only RLS policies and the per-user
+realtime channel are defined in `migrations/` at the repo root. History rows are
+written by the backend (which needs `INSFORGE_URL` and `INSFORGE_API_KEY`); the
+frontend only reads the signed-in user's rows. API calls to the backend carry
+the user's InsForge access token.
 
 ## Docker
 
