@@ -21,6 +21,8 @@ export function useInvestigate(options?: { onComplete?: () => void }) {
     queryFn: () => getProgress(investigationId!),
     enabled: mutation.isPending && investigationId !== null,
     refetchInterval: mutation.isPending ? 800 : false,
+    // Keep polling if the user switches tabs during a long investigation.
+    refetchIntervalInBackground: true,
     retry: false,
   });
 
