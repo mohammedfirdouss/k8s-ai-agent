@@ -5,16 +5,31 @@ export interface HealthResponse {
   service: string;
 }
 
-// AI diagnosis returned by POST /investigate. All fields are nullable; when
-// `error` is set, AI analysis failed and the other fields are null.
-export interface Diagnosis {
-  root_cause: string | null;
+export type Severity = "critical" | "high" | "medium" | "low";
+
+// One independent problem found in the cluster.
+export interface Incident {
+  workload: string | null;
+  namespace: string | null;
+  severity: Severity;
+  root_cause: string;
   explanation: string | null;
   fix: string | null;
-  kubectl_commands: string[] | null;
+  kubectl_commands: string[];
   prevention: string | null;
   confidence: number | null;
   confidence_reasoning: string | null;
+  evidence: string[];
+}
+
+// AI diagnosis returned by POST /investigate. Incidents are most severe
+// first; root_cause/confidence are a one-line headline. When `error` is set,
+// AI analysis failed and the other fields are empty.
+export interface Diagnosis {
+  summary: string | null;
+  incidents: Incident[];
+  root_cause: string | null;
+  confidence: number | null;
   error: string | null;
 }
 

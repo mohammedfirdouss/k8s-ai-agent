@@ -52,14 +52,22 @@ export async function investigate(
   return response.data;
 }
 
-// Polls the progress of an in-flight investigation.
+// Polls the progress of an in-flight investigation. Returns null while the
+// backend has not registered it yet (the first poll can beat the POST).
 export async function getProgress(
   investigationId: string,
-): Promise<ProgressResponse> {
-  const response = await api.get<ProgressResponse>(
-    `/investigations/${investigationId}/progress`,
-  );
-  return response.data;
+): Promise<ProgressResponse | null> {
+  try {
+    const response = await api.get<ProgressResponse>(
+      `/investigations/${investigationId}/progress`,
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 // Turns an axios/unknown error into a short, user-readable message.

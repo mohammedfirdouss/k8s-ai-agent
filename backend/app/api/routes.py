@@ -60,15 +60,7 @@ def investigate(
     blocking, so FastAPI runs this in a worker thread instead of the
     event loop.
     """
-    context = request.context or None
-    if context is not None:
-        available = kubectl.list_contexts()["clusters"]
-        if context not in available:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown cluster context '{context}'.",
-            )
-
+    # Register progress first: the frontend starts polling it immediately.
     investigation_id = str(request.investigation_id)
     try:
         tracker = progress.create(investigation_id, owner_id=user.id)
@@ -76,6 +68,14 @@ def investigate(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An investigation with this id already exists.",
+        )
+
+    context = request.context or None
+    if context is not None and context not in kubectl.list_contexts()["clusters"]:
+        tracker.finish()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown cluster context '{context}'.",
         )
 
     kube = Kubectl(context)
