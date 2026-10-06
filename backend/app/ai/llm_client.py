@@ -20,8 +20,12 @@ class LLMError(Exception):
     """Raised when the LLM cannot produce a response."""
 
 
-def chat(system_prompt: str, user_prompt: str) -> str:
+def chat(system_prompt: str, user_prompt: str, json_mode: bool = True) -> str:
     """Send one chat request to OpenRouter and return the reply text.
+
+    With `json_mode`, asks the model for a JSON object (OpenRouter
+    `response_format`); if the routed provider rejects that parameter, the
+    request is retried once without it.
 
     Retries transient failures (network errors, 5xx, rate limits) up to
     MAX_ATTEMPTS times. Raises LLMError when no response can be obtained.
@@ -45,6 +49,8 @@ def chat(system_prompt: str, user_prompt: str) -> str:
         # Low temperature: we want deterministic, factual troubleshooting.
         "temperature": 0.2,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
 
     last_error = "unknown error"
@@ -67,6 +73,11 @@ def chat(system_prompt: str, user_prompt: str) -> str:
                 return response.json()["choices"][0]["message"]["content"]
             except (KeyError, IndexError, ValueError):
                 raise LLMError("OpenRouter returned an unexpected response format")
+
+        if response.status_code == 400 and "response_format" in payload and "response_format" in response.text:
+            logger.warning("Model rejected JSON mode; retrying without response_format")
+            del payload["response_format"]
+            continue
 
         # 429 (rate limit) and 5xx are worth retrying; 4xx are not.
         last_error = f"HTTP {response.status_code}: {response.text[:200]}"
