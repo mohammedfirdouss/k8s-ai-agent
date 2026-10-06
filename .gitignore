@@ -17,3 +17,8 @@
 # Environment files with secrets
 backend/.env
 .env
+
+# Python
+backend/.venv
+__pycache__/
+.pytest_cache/
