@@ -46,6 +46,27 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+## Evals
+
+`evals/` measures how often the agent diagnoses the
+[test scenarios](../k8s-test-scenarios) correctly. Each diagnosis is scored
+against a rubric: did it name the broken workload, give the right cause and
+give the right fix?
+
+```bash
+# Replay recorded kubectl output (no cluster needed; uses the LLM in .env)
+python -m evals.run --repeat 3
+
+# Re-record fixtures from a dedicated test cluster (after changing inspectors)
+kind create cluster --name k8s-ai-test
+python -m evals.run --live --context kind-k8s-ai-test --record
+```
+
+Fixtures (`evals/fixtures/`) store raw kubectl output, so replay runs the real
+inspectors and inspector changes get evaluated too. Results are written to
+`evals/results/` (gitignored). `--min-pass 0.8` makes the run exit non-zero
+below an 80% pass rate, for CI.
+
 ## Run with Docker
 
 ```bash

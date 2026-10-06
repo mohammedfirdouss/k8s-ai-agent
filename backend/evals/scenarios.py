@@ -87,7 +87,10 @@ IMAGE_PULL = Expectation(
 )
 OOM = Expectation(
     workload="analytics-worker",
-    cause=[["oom", "out of memory", "out-of-memory"], ["limit", "16mi"]],
+    cause=[
+        ["oom", "out of memory", "out-of-memory"],
+        ["limit", "16mi", "insufficient memory", "not enough memory", "memory allocation"],
+    ],
     fix=[["memory"], ["limit", "limits", "resources"]],
 )
 SELECTOR = Expectation(

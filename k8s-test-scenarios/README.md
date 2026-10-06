@@ -12,6 +12,10 @@ against real Kubernetes problems.
 
 ## Usage
 
+Manifests don't set a namespace, so they go to `default` unless you pass `-n`.
+The eval harness (`backend/evals/`) applies each one to its own namespace and
+scores the agent's diagnosis. See the backend README.
+
 Apply one scenario at a time so the diagnosis stays focused:
 
 ```bash
