@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Dashboard from "@/components/Dashboard";
 import LoginForm from "@/components/LoginForm";
 import { insforge, insforgeConfigured } from "@/services/insforge";
+import type { SignedInUser } from "@/types";
 
 export default function Home() {
   // When InsForge is configured we first check for an existing session.
   const [checkingSession, setCheckingSession] = useState(insforgeConfigured);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [user, setUser] = useState<SignedInUser | null>(null);
 
   useEffect(() => {
     if (!insforgeConfigured || !insforge) return;
@@ -16,8 +17,8 @@ export default function Home() {
     (async () => {
       try {
         const { data } = await insforge.auth.getCurrentUser();
-        if (!cancelled && data?.user?.email) {
-          setUserEmail(data.user.email);
+        if (!cancelled && data?.user?.id) {
+          setUser({ id: data.user.id, email: data.user.email });
         }
       } catch {
         // No session or InsForge unreachable — fall through to the login form.
@@ -37,9 +38,9 @@ export default function Home() {
     );
   }
 
-  if (insforgeConfigured && !userEmail) {
-    return <LoginForm onSignedIn={setUserEmail} />;
+  if (insforgeConfigured && !user) {
+    return <LoginForm onSignedIn={setUser} />;
   }
 
-  return <Dashboard email={userEmail} onSignedOut={() => setUserEmail(null)} />;
+  return <Dashboard user={user} onSignedOut={() => setUser(null)} />;
 }

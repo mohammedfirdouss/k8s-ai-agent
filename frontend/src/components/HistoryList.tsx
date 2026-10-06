@@ -5,78 +5,69 @@ import { insforge, insforgeConfigured } from "@/services/insforge";
 import type { InvestigationRow } from "@/types";
 
 type HistoryListProps = {
+  // Signed-in user; history and its realtime channel are per user.
+  userId: string | null;
   // Bump this value to trigger a refetch (e.g. after an investigation).
   refreshKey: number;
 };
 
+const HISTORY_COLUMNS = "id, created_at, root_cause, cluster_context, confidence, status";
+
 async function fetchInvestigations(): Promise<InvestigationRow[]> {
   if (!insforge) return [];
-  try {
-    // Preferred: server-side ordering + limit (PostgREST-style chain).
-    const { data, error } = await insforge.database
-      .from("investigations")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(10);
-    if (error) throw error;
-    return (data ?? []) as InvestigationRow[];
-  } catch {
-    // Fallback: plain select, sort and trim client-side.
-    try {
-      const { data } = await insforge.database
-        .from("investigations")
-        .select("*");
-      const rows = (data ?? []) as InvestigationRow[];
-      return rows
-        .sort(
-          (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-        .slice(0, 10);
-    } catch {
-      return [];
-    }
-  }
+  // RLS returns only the signed-in user's rows.
+  const { data, error } = await insforge.database
+    .from("investigations")
+    .select(HISTORY_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  return (data ?? []) as InvestigationRow[];
 }
 
-export default function HistoryList({ refreshKey }: HistoryListProps) {
+export default function HistoryList({ userId, refreshKey }: HistoryListProps) {
   const [rows, setRows] = useState<InvestigationRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const refresh = useCallback(async () => {
-    const result = await fetchInvestigations();
-    setRows(result);
+    try {
+      setRows(await fetchInvestigations());
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    }
     setLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (!insforgeConfigured) return;
+    if (!insforgeConfigured || !userId) return;
     void refresh();
-  }, [refresh, refreshKey]);
+  }, [refresh, refreshKey, userId]);
 
-  // Best-effort realtime: refresh the list when a new row is inserted.
+  // Best-effort realtime: refresh the list when a new row is inserted on
+  // this user's channel.
   useEffect(() => {
-    if (!insforgeConfigured || !insforge) return;
-    let active = true;
+    if (!insforgeConfigured || !insforge || !userId) return;
+    const channel = `investigations:${userId}`;
+    const onInsert = () => void refresh();
     (async () => {
       try {
-        await insforge.realtime.subscribe("investigations");
-        insforge.realtime.on("INSERT", () => {
-          if (active) void refresh();
-        });
+        await insforge.realtime.subscribe(channel);
+        insforge.realtime.on("INSERT", onInsert);
       } catch {
-        // Realtime is optional; polling via refreshKey still works.
+        // Realtime is optional; refreshKey still refreshes after each run.
       }
     })();
     return () => {
-      active = false;
       try {
-        insforge?.realtime.unsubscribe("investigations");
+        insforge?.realtime.off("INSERT", onInsert);
+        insforge?.realtime.unsubscribe(channel);
       } catch {
         // Ignore teardown errors.
       }
     };
-  }, [refresh]);
+  }, [refresh, userId]);
 
   if (!insforgeConfigured) return null;
 
@@ -87,7 +78,11 @@ export default function HistoryList({ refreshKey }: HistoryListProps) {
       </h2>
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">
-          {loaded ? "No investigations yet." : "Loading history..."}
+          {!loaded
+            ? "Loading history..."
+            : loadError
+              ? "Could not load history."
+              : "No investigations yet."}
         </p>
       ) : (
         <div className="mt-3 overflow-x-auto">
@@ -95,6 +90,7 @@ export default function HistoryList({ refreshKey }: HistoryListProps) {
             <thead>
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2 pr-4 font-semibold">Date</th>
+                <th className="py-2 pr-4 font-semibold">Cluster</th>
                 <th className="py-2 pr-4 font-semibold">Root Cause</th>
                 <th className="py-2 pr-4 font-semibold">Confidence</th>
                 <th className="py-2 font-semibold">Status</th>
@@ -105,6 +101,9 @@ export default function HistoryList({ refreshKey }: HistoryListProps) {
                 <tr key={row.id} className="border-b border-slate-100">
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
                     {new Date(row.created_at).toLocaleString()}
+                  </td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
+                    {row.cluster_context ?? "default"}
                   </td>
                   <td className="max-w-md truncate py-2 pr-4 text-slate-800">
                     {row.root_cause ?? "—"}

@@ -1,9 +1,8 @@
 // Shared API types for the AI Kubernetes Agent frontend.
 
 export interface HealthResponse {
-  status: "ok" | "degraded" | "down";
-  version?: string;
-  timestamp?: string;
+  status: string;
+  service: string;
 }
 
 // AI diagnosis returned by POST /investigate. All fields are nullable; when
@@ -20,7 +19,10 @@ export interface Diagnosis {
 }
 
 export interface InvestigateResponse {
+  investigation_id: string;
   status: string;
+  // True when the backend saved this investigation to the user's history.
+  saved: boolean;
   diagnosis: Diagnosis;
   // Set when the selected cluster was unreachable. Contains a
   // beginner-friendly multi-line message; the diagnosis is empty then.
@@ -51,12 +53,18 @@ export interface ProgressResponse {
   steps: ProgressStep[];
 }
 
-// Row shape of the InsForge `investigations` table.
+// Row shape of the InsForge `investigations` table (columns the UI reads).
 export interface InvestigationRow {
   id: string;
   created_at: string;
   root_cause: string | null;
-  namespace: string | null;
+  cluster_context: string | null;
   confidence: number | null;
   status: string | null;
+}
+
+// The signed-in InsForge user.
+export interface SignedInUser {
+  id: string;
+  email: string;
 }

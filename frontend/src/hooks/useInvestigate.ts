@@ -1,44 +1,34 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getProgress, investigate } from "@/services/api";
-import { insforge, insforgeConfigured } from "@/services/insforge";
-import type { InvestigateResponse } from "@/types";
-
-// Saves a history row to InsForge. Fire-and-forget: failures never surface.
-async function saveHistory(result: InvestigateResponse): Promise<void> {
-  if (!insforgeConfigured || !insforge) return;
-  try {
-    await insforge.database.from("investigations").insert([
-      {
-        root_cause: result.diagnosis?.root_cause ?? null,
-        confidence: result.diagnosis?.confidence ?? null,
-        status: result.diagnosis?.error ? "failed" : "completed",
-        namespace: null,
-      },
-    ]);
-  } catch {
-    // History persistence is best-effort only.
-  }
-}
 
 // Runs an investigation (long-running POST) and, while it is in flight,
-// polls the backend progress endpoint every 800ms.
+// polls that investigation's progress endpoint every 800ms. The backend
+// saves the result to history itself.
 export function useInvestigate(options?: { onComplete?: () => void }) {
+  const [investigationId, setInvestigationId] = useState<string | null>(null);
+
   const mutation = useMutation({
-    mutationFn: (context?: string | null) => investigate(context),
-    onSuccess: (data) => {
-      void saveHistory(data).then(() => options?.onComplete?.());
-    },
+    mutationFn: ({ id, context }: { id: string; context?: string | null }) =>
+      investigate(id, context),
+    onSuccess: () => options?.onComplete?.(),
   });
 
   const progressQuery = useQuery({
-    queryKey: ["investigate-progress"],
-    queryFn: getProgress,
-    enabled: mutation.isPending,
+    queryKey: ["investigate-progress", investigationId],
+    queryFn: () => getProgress(investigationId!),
+    enabled: mutation.isPending && investigationId !== null,
     refetchInterval: mutation.isPending ? 800 : false,
     retry: false,
   });
 
-  return { mutation, progress: progressQuery.data };
+  function start(context?: string | null) {
+    const id = crypto.randomUUID();
+    setInvestigationId(id);
+    mutation.mutate({ id, context });
+  }
+
+  return { mutation, start, progress: progressQuery.data };
 }

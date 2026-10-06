@@ -8,16 +8,17 @@ import ClusterSelector from "@/components/ClusterSelector";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import HistoryList from "@/components/HistoryList";
 import InvestigationProgress from "@/components/InvestigationProgress";
+import type { SignedInUser } from "@/types";
 
 type DashboardProps = {
-  email: string | null;
+  user: SignedInUser | null;
   onSignedOut: () => void;
 };
 
-export default function Dashboard({ email, onSignedOut }: DashboardProps) {
+export default function Dashboard({ user, onSignedOut }: DashboardProps) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
-  const { mutation, progress } = useInvestigate({
+  const { mutation, start, progress } = useInvestigate({
     onComplete: () => setHistoryRefreshKey((k) => k + 1),
   });
 
@@ -43,7 +44,7 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
           </h1>
           {insforgeConfigured && (
             <div className="flex items-center gap-3">
-              {email && <span className="text-sm text-slate-600">{email}</span>}
+              {user && <span className="text-sm text-slate-600">{user.email}</span>}
               <button
                 type="button"
                 onClick={handleSignOut}
@@ -72,7 +73,7 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
         <div>
           <button
             type="button"
-            onClick={() => mutation.mutate(selectedCluster)}
+            onClick={() => start(selectedCluster)}
             disabled={running}
             className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -122,7 +123,7 @@ export default function Dashboard({ email, onSignedOut }: DashboardProps) {
 
         {diagnosis && <DiagnosisCard diagnosis={diagnosis} />}
 
-        <HistoryList refreshKey={historyRefreshKey} />
+        <HistoryList userId={user?.id ?? null} refreshKey={historyRefreshKey} />
       </div>
     </main>
   );
