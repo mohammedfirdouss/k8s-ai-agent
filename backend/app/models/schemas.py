@@ -1,6 +1,7 @@
 """Pydantic schemas used by the API."""
 
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -44,8 +45,11 @@ class Diagnosis(BaseModel):
 
 
 class InvestigateRequest(BaseModel):
-    """Optional request body for /investigate."""
+    """Request body for /investigate."""
 
+    # Client-generated id, so the frontend can poll this investigation's
+    # progress while the request is still running. Also the history row id.
+    investigation_id: UUID
     # Kubeconfig context (cluster) to investigate; default context when omitted.
     context: Optional[str] = None
 
@@ -61,20 +65,11 @@ class ClustersResponse(BaseModel):
 class InvestigateResponse(BaseModel):
     """Response body for the /investigate endpoint."""
 
+    investigation_id: UUID
     status: str
     diagnosis: Diagnosis
     investigation: InvestigationEvidence
+    # True when the investigation was saved to the user's history.
+    saved: bool = False
     # Beginner-friendly message set when the cluster itself was unreachable.
     cluster_error: Optional[str] = None
-
-
-class InvestigationResult(BaseModel):
-    """Result of a troubleshooting investigation (placeholder).
-
-    All fields are optional for now; they will be filled in once the
-    Kubernetes inspectors and AI analysis are implemented.
-    """
-
-    root_cause: Optional[str] = None
-    suggested_fix: Optional[str] = None
-    confidence: Optional[float] = None
