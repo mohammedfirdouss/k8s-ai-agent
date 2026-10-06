@@ -57,3 +57,31 @@ def test_two_invalid_replies_give_an_error(monkeypatch):
 def test_empty_incident_list_means_healthy(monkeypatch):
     fake_replies(monkeypatch, json.dumps({"summary": "fine", "incidents": []}))
     assert agent.analyze(BROKEN)["root_cause"] == agent.HEALTHY_ROOT_CAUSE
+
+
+def test_missed_flagged_problem_triggers_retry_naming_it(monkeypatch):
+    evidence = {
+        **BROKEN,
+        "pods": {"healthy": False, "problematic_pods": [
+            {"name": "a-1", "namespace": "ns", "workload": "Deployment/a", "status": "CrashLoopBackOff"}]},
+        "network": {"healthy": False, "issues": [
+            {"service": "orders", "namespace": "ns", "problem": "no ready endpoints"}]},
+    }
+    first = {"incidents": [incident()]}
+    second = {"incidents": [incident(), incident(workload="Service/orders", root_cause="selector matches nothing")]}
+    calls = fake_replies(monkeypatch, json.dumps(first), json.dumps(second))
+
+    diagnosis = agent.analyze(evidence)
+    assert len(calls) == 2
+    assert "Service/orders in ns has no ready endpoints" in calls[1]
+    assert len(diagnosis["incidents"]) == 2
+
+
+def test_keeps_more_complete_answer_when_retry_is_worse(monkeypatch):
+    evidence = {**BROKEN, "network": {"issues": [
+        {"service": "orders", "namespace": "ns", "problem": "no ready endpoints"},
+        {"service": "billing", "namespace": "ns", "problem": "no ready endpoints"}]}}
+    first = {"incidents": [incident(workload="Service/orders")]}
+    second = {"incidents": []}
+    fake_replies(monkeypatch, json.dumps(first), json.dumps(second))
+    assert agent.analyze(evidence)["incidents"][0]["workload"] == "Service/orders"

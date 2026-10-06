@@ -43,31 +43,77 @@ def analyze(evidence: dict) -> dict:
         ).model_dump()
 
     user_prompt = build_user_prompt(evidence)
-    reply_error = None
-    # One retry: a malformed reply is sent back with the validation error.
+    flagged = _flagged_problems(evidence)
+    best: Optional[_LLMReply] = None
+    feedback = None
+    # Up to one retry, feeding back what was wrong: a malformed reply, or
+    # problems the inspectors flagged that no incident covers.
     for attempt in (1, 2):
-        prompt = user_prompt
-        if reply_error:
-            prompt += (
-                f"\n\nYour previous reply was invalid ({reply_error}). "
-                "Respond with ONLY the JSON object in the required shape."
-            )
+        prompt = user_prompt + (f"\n\n{feedback}" if feedback else "")
         try:
             reply = chat(SYSTEM_PROMPT, prompt)
         except LLMError as exc:
+            if best is not None:
+                break  # keep the incomplete-but-valid first answer
             logger.error("AI analysis unavailable: {}", exc)
             return Diagnosis(error=str(exc)).model_dump()
 
         parsed, reply_error = _parse_reply(reply)
-        if parsed is not None:
-            diagnosis = _to_diagnosis(parsed)
-            logger.info(
-                "Diagnosis: {} incident(s) — {}", len(diagnosis.incidents), diagnosis.root_cause
+        if parsed is None:
+            logger.warning("LLM reply attempt {} was not a valid diagnosis: {}", attempt, reply_error)
+            feedback = (
+                f"Your previous reply was invalid ({reply_error}). "
+                "Respond with ONLY the JSON object in the required shape."
             )
-            return diagnosis.model_dump()
-        logger.warning("LLM reply attempt {} was not a valid diagnosis: {}", attempt, reply_error)
+            continue
 
-    return Diagnosis(error="AI returned a response that could not be parsed").model_dump()
+        missing = _uncovered(flagged, parsed)
+        if best is None or len(missing) < len(_uncovered(flagged, best)):
+            best = parsed
+        if not missing:
+            break
+        logger.warning("LLM reply attempt {} missed flagged problems: {}", attempt, missing)
+        feedback = (
+            "Your previous reply did not include an incident for these problems found in "
+            "the evidence: " + "; ".join(missing) + ". Respond again with the full JSON "
+            "object, with one incident for every independent problem."
+        )
+
+    if best is None:
+        return Diagnosis(error="AI returned a response that could not be parsed").model_dump()
+    diagnosis = _to_diagnosis(best)
+    logger.info("Diagnosis: {} incident(s) — {}", len(diagnosis.incidents), diagnosis.root_cause)
+    return diagnosis.model_dump()
+
+
+def _flagged_problems(evidence: dict) -> "dict[str, str]":
+    """Problems the inspectors flagged deterministically: name -> description.
+
+    Every one of these must be covered by some incident; the name is what an
+    incident has to mention.
+    """
+    flagged: "dict[str, str]" = {}
+    for pod in evidence.get("pods", {}).get("problematic_pods", []):
+        workload = pod.get("workload") or f'Pod/{pod["name"]}'
+        name = workload.split("/", 1)[-1]
+        flagged.setdefault(name, f'{workload} in {pod["namespace"]} is {pod["status"]}')
+    for deployment in evidence.get("deployments", {}).get("unhealthy_deployments", []):
+        flagged.setdefault(
+            deployment["name"], f'Deployment/{deployment["name"]} in {deployment["namespace"]} is unavailable'
+        )
+    for issue in evidence.get("network", {}).get("issues", []):
+        flagged.setdefault(
+            issue["service"], f'Service/{issue["service"]} in {issue["namespace"]} has {issue["problem"]}'
+        )
+    return flagged
+
+
+def _uncovered(flagged: "dict[str, str]", reply: _LLMReply) -> "list[str]":
+    """Descriptions of flagged problems that no incident mentions."""
+    text = " ".join(
+        " ".join(filter(None, [i.workload, i.root_cause, i.explanation])) for i in reply.incidents
+    ).lower()
+    return [description for name, description in flagged.items() if name.lower() not in text]
 
 
 def _cluster_looks_healthy(evidence: dict) -> bool:
