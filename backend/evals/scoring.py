@@ -51,26 +51,43 @@ def matches(text: str, groups: Groups) -> bool:
 
 
 def score(scenario: Scenario, diagnosis: dict) -> ScenarioScore:
-    cause_text = " ".join(filter(None, [diagnosis.get("root_cause"), diagnosis.get("explanation")]))
-    fix_text = " ".join(
-        filter(None, [diagnosis.get("fix"), *(diagnosis.get("kubectl_commands") or [])])
-    )
-    all_text = f"{cause_text} {fix_text}"
+    """Score each expected problem against the incident(s) about its workload.
+
+    An expectation passes only when one incident both names the workload and
+    gives the right cause and fix, so a correct cause attached to the wrong
+    workload does not count.
+    """
+    incidents = diagnosis.get("incidents")
+    if incidents is None:  # pre-incident flat diagnosis format
+        incidents = [diagnosis]
 
     return ScenarioScore(
         scenario=scenario.id,
         error=diagnosis.get("error"),
         confidence=diagnosis.get("confidence"),
-        expectations=[_score_expectation(e, cause_text, fix_text, all_text) for e in scenario.expectations],
+        expectations=[_score_expectation(e, incidents) for e in scenario.expectations],
     )
 
 
-def _score_expectation(
-    expectation: Expectation, cause_text: str, fix_text: str, all_text: str
-) -> ExpectationScore:
-    return ExpectationScore(
-        workload=expectation.workload,
-        named_workload=expectation.workload.lower() in all_text.lower(),
-        cause=matches(cause_text, expectation.cause),
-        fix=matches(fix_text, expectation.fix),
-    )
+def _texts(incident: dict) -> "tuple[str, str]":
+    cause = " ".join(filter(None, [incident.get("root_cause"), incident.get("explanation")]))
+    fix = " ".join(filter(None, [incident.get("fix"), *(incident.get("kubectl_commands") or [])]))
+    return cause, fix
+
+
+def _score_expectation(expectation: Expectation, incidents: "list[dict]") -> ExpectationScore:
+    best = ExpectationScore(workload=expectation.workload, named_workload=False, cause=False, fix=False)
+    for incident in incidents:
+        cause_text, fix_text = _texts(incident)
+        all_text = " ".join(filter(None, [incident.get("workload"), cause_text, fix_text]))
+        if expectation.workload.lower() not in all_text.lower():
+            continue
+        candidate = ExpectationScore(
+            workload=expectation.workload,
+            named_workload=True,
+            cause=matches(cause_text, expectation.cause),
+            fix=matches(fix_text, expectation.fix),
+        )
+        if (candidate.cause + candidate.fix) > (best.cause + best.fix) or not best.named_workload:
+            best = candidate
+    return best
