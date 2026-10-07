@@ -71,6 +71,16 @@ List incidents most severe first.
 """
 
 
+TOOLS_PROMPT = """
+Tools: you may call read-only kubectl tools (at most {max_calls} calls) to gather
+evidence the report above lacks before answering, for example a pod's YAML to
+read its command, probes, env or volumes; `describe` for an object's events and
+conditions; or logs of a specific container. Only call a tool when the answer
+depends on something not already in the evidence; never re-fetch what you were
+given. When you have enough, respond with the final JSON object.
+"""
+
+
 def build_user_prompt(evidence: dict) -> str:
     """Format the investigation payload as a structured evidence report."""
     sections = [

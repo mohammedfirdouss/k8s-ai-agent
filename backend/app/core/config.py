@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = ""
 
+    # Read-only kubectl tool calls the agent may make per investigation to
+    # dig deeper than the collected evidence. 0 disables tool use.
+    AGENT_MAX_TOOL_CALLS: int = 6
+
     # Path to the kubeconfig file used to talk to the cluster.
     KUBECONFIG_PATH: str = ""
 

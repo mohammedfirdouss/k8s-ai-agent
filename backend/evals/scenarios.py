@@ -234,7 +234,9 @@ SCENARIOS: "list[Scenario]" = [
         id="silent-crash",
         description="Exits 1 with no logs — cause unknowable; confidence must be low",
         manifests=["09-silent-crash.yaml"],
-        ready=_any_waiting("CrashLoopBackOff"),
+        # Recent kubelets report terminated/Error between restarts rather
+        # than waiting/CrashLoopBackOff, so wait on the restart count.
+        ready=_restarted_at_least(2),
         expectations=[SILENT_CRASH],
     ),
     Scenario(
