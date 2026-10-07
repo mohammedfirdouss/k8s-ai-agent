@@ -14,7 +14,10 @@ from app.core.config import settings
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 REQUEST_TIMEOUT_SECONDS = 60
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 4
+# Exponential backoff between attempts: 2s, 4s, 8s (capped by Retry-After when given).
+BACKOFF_BASE_SECONDS = 2
+MAX_BACKOFF_SECONDS = 20
 
 
 class LLMError(Exception):
@@ -80,7 +83,7 @@ def chat_messages(
         except httpx.HTTPError as exc:
             last_error = f"network error: {exc}"
             logger.warning("LLM attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, last_error)
-            time.sleep(attempt)  # simple backoff: 1s, 2s
+            _backoff(attempt)
             continue
 
         if response.status_code == 200:
@@ -91,7 +94,7 @@ def chat_messages(
                 # with an error body and no choices; treat them as transient.
                 last_error = f"no completion in response: {response.text[:200]}"
                 logger.warning("LLM attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, last_error)
-                time.sleep(attempt)
+                _backoff(attempt)
                 continue
 
         if response.status_code == 400 and "response_format" in payload and "response_format" in response.text:
@@ -104,6 +107,16 @@ def chat_messages(
         logger.warning("LLM attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, last_error)
         if response.status_code != 429 and response.status_code < 500:
             break
-        time.sleep(attempt)
+        _backoff(attempt, response.headers.get("retry-after"))
 
     raise LLMError(f"LLM request failed after {MAX_ATTEMPTS} attempts ({last_error})")
+
+
+def _backoff(attempt: int, retry_after: Optional[str] = None) -> None:
+    """Sleep before the next attempt; skipped after the last one."""
+    if attempt >= MAX_ATTEMPTS:
+        return
+    delay = BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
+    if retry_after and retry_after.isdigit():
+        delay = int(retry_after)
+    time.sleep(min(delay, MAX_BACKOFF_SECONDS))
