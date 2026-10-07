@@ -166,3 +166,19 @@ def test_tool_arguments_cannot_inject_flags_or_read_secrets():
     ]:
         output, command = tools.run_tool(FakeKubectl(), name, json.dumps(args))
         assert command is None and output.startswith("Invalid tool call"), (name, args)
+
+
+def test_llm_client_retries_200_without_choices(monkeypatch):
+    import httpx
+
+    from app.ai import llm_client
+
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(settings, "OPENROUTER_MODEL", "m")
+    monkeypatch.setattr(llm_client.time, "sleep", lambda _s: None)
+    replies = iter([
+        httpx.Response(200, json={"error": {"message": "upstream provider error"}}),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ])
+    monkeypatch.setattr(llm_client.httpx, "post", lambda *a, **k: next(replies))
+    assert llm_client.chat("s", "u") == "ok"

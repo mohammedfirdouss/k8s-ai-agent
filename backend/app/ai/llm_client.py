@@ -86,8 +86,13 @@ def chat_messages(
         if response.status_code == 200:
             try:
                 return response.json()["choices"][0]["message"]
-            except (KeyError, IndexError, ValueError):
-                raise LLMError("OpenRouter returned an unexpected response format")
+            except (KeyError, IndexError, TypeError, ValueError):
+                # OpenRouter reports some upstream provider failures as a 200
+                # with an error body and no choices; treat them as transient.
+                last_error = f"no completion in response: {response.text[:200]}"
+                logger.warning("LLM attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, last_error)
+                time.sleep(attempt)
+                continue
 
         if response.status_code == 400 and "response_format" in payload and "response_format" in response.text:
             logger.warning("Model rejected JSON mode; retrying without response_format")
