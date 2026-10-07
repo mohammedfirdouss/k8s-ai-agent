@@ -85,3 +85,44 @@ def test_score_passes_a_correct_diagnosis_and_fails_a_generic_one():
 def test_fixtures_are_valid_json():
     for scenario in SCENARIOS:
         assert isinstance(json.loads(fixture_path(scenario.id).read_text()), dict)
+
+
+def test_readiness_evidence():
+    evidence = evidence_for("readiness")
+    assert problem_pods(evidence) == {"inventory-api": "NotReady"}
+    messages = " ".join(e["message"] for e in evidence["events"]["findings"])
+    assert "Readiness probe failed" in messages and "404" in messages
+
+
+def test_pending_evidence():
+    evidence = evidence_for("pending")
+    assert problem_pods(evidence) == {"report-generator": "Pending"}
+    messages = " ".join(e["message"] for e in evidence["events"]["findings"])
+    assert "Insufficient cpu" in messages
+
+
+def test_configmap_evidence():
+    evidence = evidence_for("configmap")
+    assert problem_pods(evidence) == {"notification-service": "CreateContainerConfigError"}
+    pod = evidence["pods"]["problematic_pods"][0]
+    assert 'configmap "notification-config" not found' in pod["containers"][0]["waiting_message"]
+
+
+def test_liveness_evidence():
+    evidence = evidence_for("liveness")
+    assert set(problem_pods(evidence)) == {"search-service"}
+    messages = " ".join(e["message"] for e in evidence["events"]["findings"])
+    assert "Liveness probe failed" in messages and "8080" in messages
+
+
+def test_silent_crash_evidence_has_no_logs():
+    evidence = evidence_for("silent-crash")
+    assert set(problem_pods(evidence)) == {"legacy-batch"}
+    assert all(not pod["lines"] for pod in evidence["logs"]["logs"].values())
+
+
+def test_healthy_cluster_needs_no_llm():
+    from app.ai.agent import _cluster_looks_healthy
+
+    evidence = evidence_for("healthy")
+    assert _cluster_looks_healthy(evidence), (evidence["pods"], evidence["events"]["findings"])
