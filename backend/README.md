@@ -41,7 +41,8 @@ investigation to the caller's history. The browser never writes history rows.
 After collecting the standard evidence, the model may call read-only kubectl
 tools to dig deeper, for example reading a pod's YAML to see its command,
 probes or env. It gets up to `AGENT_MAX_TOOL_CALLS` calls per investigation
-(default 6; `0` disables tool use).
+(default `0`, meaning single-shot diagnosis). Tool use is experimental: the evals
+support it (`python -m evals.run` compares against `--no-tools`), but it has not been measured yet.
 
 The model never writes kubectl commands itself. It picks from four tools
 (`describe`, `get_yaml`, `list`, `logs`) and fills in typed arguments:
