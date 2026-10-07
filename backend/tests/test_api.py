@@ -1,4 +1,4 @@
-import uuid
+import time
 
 import httpx
 import pytest
@@ -8,14 +8,16 @@ from app.api import routes
 from app.core import auth
 from app.core.config import settings
 from app.main import app
+from app.services import jobs
 
 EVIDENCE = {"pods": {"healthy": True}, "logs": {}, "events": {}, "deployments": {}, "network": {}}
+GOOD = {"Authorization": "Bearer good-token"}
 
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(routes, "run_investigation", lambda kube, tracker: EVIDENCE)
-    monkeypatch.setattr(routes, "analyze", lambda evidence, kube=None: {"root_cause": "x", "confidence": 50})
+    monkeypatch.setattr(jobs, "run_investigation", lambda kube, tracker: EVIDENCE)
+    monkeypatch.setattr(jobs, "analyze", lambda evidence, kube=None: {"root_cause": "x", "confidence": 50})
     monkeypatch.setattr(routes.kubectl, "list_contexts", lambda: {"clusters": ["prod"], "current": "prod", "error": None})
     return TestClient(app)
 
@@ -36,8 +38,17 @@ def auth_on(monkeypatch):
     monkeypatch.setattr(auth.httpx, "get", fake_get)
 
 
-def body(**extra):
-    return {"investigation_id": str(uuid.uuid4()), **extra}
+def run_to_completion(client, headers=None, **body):
+    """Start an investigation and poll until it finishes. Returns (id, status JSON)."""
+    started = client.post("/investigations", json=body, headers=headers or {})
+    assert started.status_code == 202, started.text
+    investigation_id = started.json()["investigation_id"]
+    for _ in range(200):
+        status = client.get(f"/investigations/{investigation_id}", headers=headers or {}).json()
+        if not status["running"]:
+            return investigation_id, status
+        time.sleep(0.01)
+    raise AssertionError("investigation did not finish")
 
 
 def test_health_is_public(client, auth_on):
@@ -46,22 +57,22 @@ def test_health_is_public(client, auth_on):
 
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer bad-token"}, {"Authorization": "Basic x"}])
 def test_protected_routes_reject_missing_or_bad_tokens(client, auth_on, headers):
-    assert client.post("/investigate", json=body(), headers=headers).status_code == 401
+    assert client.post("/investigations", json={}, headers=headers).status_code == 401
     assert client.get("/clusters", headers=headers).status_code == 401
+    assert client.get("/investigations/00000000-0000-0000-0000-000000000000", headers=headers).status_code == 401
 
 
-def test_valid_token_can_investigate(client, auth_on):
-    response = client.post("/investigate", json=body(), headers={"Authorization": "Bearer good-token"})
-    assert response.status_code == 200
-    assert response.json()["diagnosis"]["root_cause"] == "x"
+def test_investigation_runs_in_background_and_returns_result(client, auth_on):
+    _, status = run_to_completion(client, GOOD)
+    assert status["result"]["diagnosis"]["root_cause"] == "x"
+    # Evidence collection is stubbed out here; the AI step is real.
+    assert {s["name"]: s["status"] for s in status["steps"]}["AI Reasoning"] == "done"
 
 
-def test_progress_is_private_to_owner(client, auth_on, monkeypatch):
-    payload = body()
-    client.post("/investigate", json=payload, headers={"Authorization": "Bearer good-token"})
-    url = f"/investigations/{payload['investigation_id']}/progress"
-
-    assert client.get(url, headers={"Authorization": "Bearer good-token"}).status_code == 200
+def test_investigation_is_private_to_owner(client, auth_on, monkeypatch):
+    investigation_id, _ = run_to_completion(client, GOOD)
+    url = f"/investigations/{investigation_id}"
+    assert client.get(url, headers=GOOD).status_code == 200
 
     # A different signed-in user cannot see it.
     monkeypatch.setattr(auth, "_verify_with_insforge", lambda token: auth.AuthUser(id="user-2"))
@@ -70,15 +81,28 @@ def test_progress_is_private_to_owner(client, auth_on, monkeypatch):
 
 
 def test_unknown_context_rejected(client, auth_on):
-    response = client.post(
-        "/investigate", json=body(context="not-a-cluster"), headers={"Authorization": "Bearer good-token"}
-    )
-    assert response.status_code == 400
+    assert client.post("/investigations", json={"context": "not-a-cluster"}, headers=GOOD).status_code == 400
+
+
+def test_per_user_running_limit(client, auth_on, monkeypatch):
+    monkeypatch.setattr(jobs.progress, "running_count", lambda owner_id: jobs.MAX_RUNNING_PER_USER)
+    assert client.post("/investigations", json={}, headers=GOOD).status_code == 429
+
+
+def test_crashed_job_finishes_with_error(client, auth_on, monkeypatch):
+    def boom(kube, tracker):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(jobs, "run_investigation", boom)
+    _, status = run_to_completion(client, GOOD)
+    assert status["result"]["status"] == "error"
+    assert "RuntimeError" in status["result"]["diagnosis"]["error"]
 
 
 def test_local_mode_needs_no_token(client, monkeypatch):
     monkeypatch.setattr(settings, "INSFORGE_URL", "")
-    assert client.post("/investigate", json=body()).status_code == 200
+    _, status = run_to_completion(client)
+    assert status["result"]["status"] == "success"
 
 
 def test_history_written_server_side_with_verified_user(client, auth_on, monkeypatch):
@@ -90,12 +114,11 @@ def test_history_written_server_side_with_verified_user(client, auth_on, monkeyp
         return httpx.Response(201, request=httpx.Request("POST", url))
 
     monkeypatch.setattr("app.services.history.httpx.post", fake_post)
-    payload = body(context="prod")
-    response = client.post("/investigate", json=payload, headers={"Authorization": "Bearer good-token"})
+    investigation_id, status = run_to_completion(client, GOOD, context="prod")
 
-    assert response.json()["saved"] is True
+    assert status["result"]["saved"] is True
     assert posted["url"].endswith("/api/database/records/investigations")
     assert posted["auth"] == "Bearer admin-key"
     assert posted["row"]["user_id"] == "user-1"
-    assert posted["row"]["id"] == payload["investigation_id"]
+    assert posted["row"]["id"] == investigation_id
     assert posted["row"]["cluster_context"] == "prod"

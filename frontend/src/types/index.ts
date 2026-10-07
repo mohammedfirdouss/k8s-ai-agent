@@ -65,9 +65,12 @@ export interface ProgressStep {
   status: "pending" | "running" | "done";
 }
 
-export interface ProgressResponse {
+// GET /investigations/{id}: live progress, then the result once finished.
+export interface InvestigationStatus {
+  investigation_id: string;
   running: boolean;
   steps: ProgressStep[];
+  result: InvestigateResponse | null;
 }
 
 // Row shape of the InsForge `investigations` table (columns the UI reads).
