@@ -1,9 +1,10 @@
-"""In-memory investigation progress tracking.
+"""In-memory investigation progress and results.
 
-Lets the frontend poll GET /investigations/{id}/progress while
-POST /investigate runs, so users see live step-by-step status. Each
-investigation gets its own tracker, owned by the user who started it, so
-concurrent investigations never see or overwrite each other's progress.
+Investigations run in the background; the frontend polls
+GET /investigations/{id} for live step-by-step status and, once finished,
+the result. Each investigation gets its own tracker, owned by the user who
+started it, so concurrent investigations never see or overwrite each
+other's progress.
 Finished trackers are kept briefly for the final poll, then dropped.
 """
 
@@ -32,6 +33,7 @@ class ProgressTracker:
         self.owner_id = owner_id
         self.running = True
         self.finished_at: Optional[float] = None
+        self.result: Optional[dict] = None
         self._lock = threading.Lock()
         self._steps = [{"name": name, "status": "pending"} for name in STEPS]
 
@@ -43,16 +45,21 @@ class ProgressTracker:
         """Mark one step as done."""
         self._set_status(name, "done")
 
-    def finish(self) -> None:
-        """Mark the whole investigation as finished."""
+    def finish(self, result: Optional[dict] = None) -> None:
+        """Mark the whole investigation as finished, with its result."""
         with self._lock:
             self.running = False
             self.finished_at = time.monotonic()
+            self.result = result
 
     def snapshot(self) -> dict:
-        """Current progress, safe to return from the API."""
+        """Current progress (and result once finished), safe to return from the API."""
         with self._lock:
-            return {"running": self.running, "steps": [dict(s) for s in self._steps]}
+            return {
+                "running": self.running,
+                "steps": [dict(s) for s in self._steps],
+                "result": self.result,
+            }
 
     def _set_status(self, name: str, status: str) -> None:
         with self._lock:
@@ -79,6 +86,12 @@ def create(investigation_id: str, owner_id: str) -> ProgressTracker:
         tracker = ProgressTracker(owner_id)
         _registry[investigation_id] = tracker
         return tracker
+
+
+def running_count(owner_id: str) -> int:
+    """How many of this user's investigations are still running."""
+    with _registry_lock:
+        return sum(1 for t in _registry.values() if t.owner_id == owner_id and t.running)
 
 
 def get(investigation_id: str, owner_id: str) -> Optional[ProgressTracker]:
