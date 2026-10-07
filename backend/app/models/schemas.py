@@ -20,11 +20,11 @@ class InvestigationEvidence(BaseModel):
     exact shape is documented in `app.kubernetes.inspectors`.
     """
 
-    pods: dict
-    logs: dict
-    events: dict
-    deployments: dict
-    network: dict
+    pods: dict = {}
+    logs: dict = {}
+    events: dict = {}
+    deployments: dict = {}
+    network: dict = {}
 
 
 class Incident(BaseModel):
@@ -65,13 +65,22 @@ class Diagnosis(BaseModel):
 
 
 class InvestigateRequest(BaseModel):
-    """Request body for /investigate."""
+    """Request body for POST /investigations."""
 
-    # Client-generated id, so the frontend can poll this investigation's
-    # progress while the request is still running. Also the history row id.
-    investigation_id: UUID
     # Kubeconfig context (cluster) to investigate; default context when omitted.
     context: Optional[str] = None
+
+
+class InvestigationStarted(BaseModel):
+    """Response body for POST /investigations."""
+
+    investigation_id: UUID
+
+
+class ProgressStep(BaseModel):
+    name: str
+    # pending | running | done
+    status: str
 
 
 class ClustersResponse(BaseModel):
@@ -83,7 +92,7 @@ class ClustersResponse(BaseModel):
 
 
 class InvestigateResponse(BaseModel):
-    """Response body for the /investigate endpoint."""
+    """The result of a finished investigation."""
 
     investigation_id: UUID
     status: str
@@ -93,3 +102,13 @@ class InvestigateResponse(BaseModel):
     saved: bool = False
     # Beginner-friendly message set when the cluster itself was unreachable.
     cluster_error: Optional[str] = None
+
+
+class InvestigationStatus(BaseModel):
+    """Response body for GET /investigations/{id}: progress, then the result."""
+
+    investigation_id: UUID
+    running: bool
+    steps: "list[ProgressStep]"
+    # Set once the investigation has finished.
+    result: Optional[InvestigateResponse] = None
