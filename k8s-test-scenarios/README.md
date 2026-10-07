@@ -9,6 +9,12 @@ against real Kubernetes problems.
 | `02-imagepullbackoff.yaml` | ImagePullBackOff | Nonexistent image tag |
 | `03-oomkilled.yaml` | OOMKilled | 16Mi memory limit, app needs far more |
 | `04-selector-mismatch.yaml` | No service endpoints | Service selector doesn't match pod labels |
+| `05-readiness-probe.yaml` | Pod never Ready | Readiness probe checks `/healthz`, which returns 404 |
+| `06-pending-resources.yaml` | Pending | Requests 64 CPUs, more than any node has |
+| `07-missing-configmap.yaml` | CreateContainerConfigError | `envFrom` references a ConfigMap that doesn't exist |
+| `08-liveness-probe.yaml` | Restart loop | Liveness probe targets port 8080; nginx listens on 80 |
+| `09-silent-crash.yaml` | CrashLoopBackOff | Exits 1 with no logs — the cause is unknowable, so confidence should be low |
+| `10-healthy.yaml` | *(none)* | Healthy control: any reported incident is a false alarm |
 
 ## Usage
 
