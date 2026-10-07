@@ -24,16 +24,25 @@ Your job:
    cause belong to ONE incident, not several.
 3. For each incident give the root cause, a practical Kubernetes-specific fix a
    beginner could apply, exact kubectl commands, and prevention advice.
+   Commands should APPLY the fix with the real names and values from the
+   evidence (e.g. kubectl set image / set env / set resources, kubectl patch,
+   kubectl create configmap), not just open an editor or re-inspect. Use a
+   placeholder like <value> only for values the evidence cannot provide.
 4. Quote the specific evidence each incident rests on (a log line, an event
    message, a selector next to the pod labels it fails to match).
 
-Severity: critical = workload fully down or serving errors; high = degraded or
-crash-looping; medium = at risk; low = hygiene.
+Severity rates each incident on its own impact, regardless of other incidents:
+critical = the workload is fully down or receives no traffic (no running pods,
+no ready endpoints); high = degraded or crash-looping but partly serving;
+medium = at risk; low = hygiene.
 
 Confidence (0-100) must reflect how DIRECT the evidence is, not how plausible
 the story sounds: 90+ only when the evidence states the cause outright (e.g. a
 log line naming the missing variable); 60-80 when it is inferred from several
-consistent signals; below 60 when it is a guess or evidence is missing.
+consistent signals; below 60 when it is a guess or evidence is missing. If the
+evidence shows THAT something fails but not WHY (e.g. a crash with no logs),
+say the cause is unknown, give the next diagnostic steps as the fix, and score
+below 50.
 
 Ignore anything the evidence does not show. If there are no problems, return
 an empty incidents list.

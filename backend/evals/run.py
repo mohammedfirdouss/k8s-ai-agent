@@ -197,19 +197,39 @@ def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: fl
         print(f"    root cause given: {diagnosis['root_cause']}")
 
 
+# kubectl verbs that change the cluster, i.e. actually apply a fix.
+FIX_VERBS = ("set ", "patch ", "create ", "apply ", "scale ", "rollout ", "label ", "annotate ", "delete ")
+
+
+def _actionable_share(incidents: "list[dict]") -> "float | None":
+    """Share of incidents with at least one command that applies a fix (not edit/get/describe/logs)."""
+    if not incidents:
+        return None
+    def actionable(incident: dict) -> bool:
+        return any(
+            any(f"kubectl {verb}" in cmd for verb in FIX_VERBS) for cmd in incident.get("kubectl_commands") or []
+        )
+    return sum(actionable(i) for i in incidents) / len(incidents)
+
+
 def _print_summary(results: "list[dict]") -> float:
     by_scenario: "dict[str, list[dict]]" = {}
     for r in results:
         by_scenario.setdefault(r["score"].scenario, []).append(r)
 
-    print(f"\n{'scenario':<12} {'pass':>7} {'coverage':>9} {'confidence':>11} {'latency':>8}")
+    print(f"\n{'scenario':<13} {'pass':>7} {'coverage':>9} {'confidence':>11} {'actionable':>11} {'latency':>8}")
     for scenario_id, runs in by_scenario.items():
         passes = sum(r["score"].passed for r in runs)
         coverage = statistics.mean(r["score"].coverage for r in runs)
         confidences = [r["score"].confidence for r in runs if r["score"].confidence is not None]
         confidence = f"{statistics.mean(confidences):.0f}%" if confidences else "—"
         latency = statistics.mean(r["latency"] for r in runs)
-        print(f"{scenario_id:<12} {passes:>3}/{len(runs):<3} {coverage:>9.0%} {confidence:>11} {latency:>7.1f}s")
+        actionable = _actionable_share([i for r in runs for i in r["diagnosis"].get("incidents", [])])
+        actionable_text = f"{actionable:.0%}" if actionable is not None else "—"
+        print(
+            f"{scenario_id:<13} {passes:>3}/{len(runs):<3} {coverage:>9.0%} {confidence:>11} "
+            f"{actionable_text:>11} {latency:>7.1f}s"
+        )
 
     pass_rate = sum(r["score"].passed for r in results) / len(results)
     print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL})")
