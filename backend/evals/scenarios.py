@@ -28,6 +28,9 @@ class Expectation:
     cause: Groups
     # Must appear in fix + kubectl_commands.
     fix: Groups
+    # When the evidence cannot establish the cause, a calibrated diagnosis
+    # must not claim more confidence than this.
+    max_confidence: "float | None" = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,11 @@ class Scenario:
     # items); True once the failure is ready to be investigated.
     ready: "Callable[[list[dict]], bool]"
     expectations: "list[Expectation]" = field(default_factory=list)
+    # True for control scenarios: any incident is a false alarm.
+    expect_healthy: bool = False
+    # Extra wait after `ready` first holds, for failures that need time to
+    # show in events (e.g. repeated probe failures).
+    settle_seconds: int = 0
 
     @property
     def namespace(self) -> str:
@@ -63,6 +71,27 @@ def _oom_killed(pods: "list[dict]") -> bool:
     return any(
         c.get("lastState", {}).get("terminated", {}).get("reason") == "OOMKilled"
         for c in _container_statuses(pods)
+    )
+
+
+def _restarted_at_least(count: int) -> "Callable[[list[dict]], bool]":
+    def check(pods: "list[dict]") -> bool:
+        return any(c.get("restartCount", 0) >= count for c in _container_statuses(pods))
+
+    return check
+
+
+def _running_not_ready(pods: "list[dict]") -> bool:
+    return any(
+        "running" in c.get("state", {}) and not c.get("ready") for c in _container_statuses(pods)
+    )
+
+
+def _unschedulable(pods: "list[dict]") -> bool:
+    return any(
+        cond.get("type") == "PodScheduled" and cond.get("reason") == "Unschedulable"
+        for pod in pods
+        for cond in pod.get("status", {}).get("conditions", [])
     )
 
 
@@ -99,6 +128,32 @@ SELECTOR = Expectation(
     fix=[["selector", "label"], ["orders-service", "orders-api"]],
 )
 
+READINESS = Expectation(
+    workload="inventory-api",
+    cause=[["readiness"], ["/healthz", "404"]],
+    fix=[["/healthz", "readinessprobe", "readiness probe", "path"]],
+)
+PENDING = Expectation(
+    workload="report-generator",
+    cause=[["cpu"], ["insufficient", "request", "64", "capacity", "exceed"]],
+    fix=[["cpu"], ["request"]],
+)
+MISSING_CONFIGMAP = Expectation(
+    workload="notification-service",
+    cause=[["notification-config"], ["not found", "missing", "does not exist", "doesn't exist", "nonexistent"]],
+    fix=[["configmap"], ["create", "notification-config"]],
+)
+LIVENESS = Expectation(
+    workload="search-service",
+    cause=[["liveness"], ["8080"]],
+    fix=[["liveness", "probe"], ["port"]],
+)
+SILENT_CRASH = Expectation(
+    workload="legacy-batch",
+    cause=[["exit", "crash", "terminat"]],
+    fix=[["log", "command", "entrypoint", "debug", "investigat", "inspect"]],
+    max_confidence=70,
+)
 
 SCENARIOS: "list[Scenario]" = [
     Scenario(
@@ -145,6 +200,50 @@ SCENARIOS: "list[Scenario]" = [
             and any(_all_ready([p]) for p in pods if p["metadata"]["name"].startswith("orders-service"))
         ),
         expectations=[CRASHLOOP, IMAGE_PULL, OOM, SELECTOR],
+    ),
+    Scenario(
+        id="readiness",
+        description="Readiness probe hits a 404 path; pod never Ready",
+        manifests=["05-readiness-probe.yaml"],
+        ready=_running_not_ready,
+        settle_seconds=20,
+        expectations=[READINESS],
+    ),
+    Scenario(
+        id="pending",
+        description="Pending: requests 64 CPUs",
+        manifests=["06-pending-resources.yaml"],
+        ready=_unschedulable,
+        expectations=[PENDING],
+    ),
+    Scenario(
+        id="configmap",
+        description="CreateContainerConfigError: missing ConfigMap",
+        manifests=["07-missing-configmap.yaml"],
+        ready=_any_waiting("CreateContainerConfigError"),
+        expectations=[MISSING_CONFIGMAP],
+    ),
+    Scenario(
+        id="liveness",
+        description="Liveness probe on the wrong port; restarted in a loop",
+        manifests=["08-liveness-probe.yaml"],
+        ready=_restarted_at_least(2),
+        expectations=[LIVENESS],
+    ),
+    Scenario(
+        id="silent-crash",
+        description="Exits 1 with no logs — cause unknowable; confidence must be low",
+        manifests=["09-silent-crash.yaml"],
+        ready=_any_waiting("CrashLoopBackOff"),
+        expectations=[SILENT_CRASH],
+    ),
+    Scenario(
+        id="healthy",
+        description="Healthy control — any incident is a false alarm",
+        manifests=["10-healthy.yaml"],
+        ready=lambda pods: len(pods) >= 2 and _all_ready(pods),
+        settle_seconds=10,
+        expect_healthy=True,
     ),
 ]
 

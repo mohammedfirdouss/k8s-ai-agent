@@ -131,6 +131,8 @@ def _wait_until_ready(kube: Kubectl, scenario: Scenario) -> bool:
     while time.monotonic() < deadline:
         data, error = kube.run_json(["get", "pods", "-n", scenario.namespace])
         if not error and scenario.ready(data.get("items", [])):
+            if scenario.settle_seconds:
+                time.sleep(scenario.settle_seconds)
             return True
         time.sleep(POLL_SECONDS)
     return False
@@ -184,9 +186,12 @@ def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: fl
     print(f"{label} {verdict}  coverage {result.coverage:.0%}  confidence {confidence}  {latency:.1f}s")
     if result.error:
         print(f"    error: {result.error}")
+    if result.false_alarms:
+        print(f"    ✗ {result.false_alarms} false alarm(s) on a healthy cluster")
     for e in result.expectations:
         if not e.passed:
-            missing = [name for name, ok in (("workload", e.named_workload), ("cause", e.cause), ("fix", e.fix)) if not ok]
+            checks = (("workload", e.named_workload), ("cause", e.cause), ("fix", e.fix), ("calibration", e.calibrated))
+            missing = [name for name, ok in checks if not ok]
             print(f"    ✗ {e.workload}: missing {', '.join(missing)}")
     if not result.passed and diagnosis.get("root_cause"):
         print(f"    root cause given: {diagnosis['root_cause']}")
