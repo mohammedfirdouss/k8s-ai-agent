@@ -61,6 +61,11 @@ class ReplayKubectl(Kubectl):
         data = json.loads(path.read_text())
         self.recorded_at = datetime.fromisoformat(data.pop(RECORDED_AT_KEY))
         self.recorded: "dict[str, dict]" = data
+        # Strict while collecting evidence (a miss means re-record). The
+        # agent's tool calls are open-ended, so for those a miss is answered
+        # as a kubectl error and counted instead.
+        self.strict = True
+        self.misses: "list[str]" = []
 
     def now(self) -> datetime:
         # Replays see the cluster as it was when recorded.
@@ -68,6 +73,9 @@ class ReplayKubectl(Kubectl):
 
     def run(self, args: "list[str]") -> KubectlResult:
         entry = self.recorded.get(_key(args))
+        if entry is None and not self.strict:
+            self.misses.append(_key(args))
+            return KubectlResult(success=False, stderr="(not available in this recording)", command=["kubectl", *args])
         if entry is None:
             raise MissingFixture(
                 f"{self.path.name} has no recording of `kubectl {_key(args)}`. "

@@ -31,6 +31,8 @@ export interface Diagnosis {
   root_cause: string | null;
   confidence: number | null;
   error: string | null;
+  // Extra read-only kubectl commands the agent chose to run.
+  commands_run: string[];
 }
 
 export interface InvestigateResponse {

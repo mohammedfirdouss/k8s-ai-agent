@@ -127,6 +127,26 @@ function IncidentCard({ incident, index }: { incident: Incident; index: number }
   );
 }
 
+// Read-only checks the agent ran beyond the standard evidence collection.
+function CommandsRun({ commands }: { commands: string[] }) {
+  if (!commands?.length) return null;
+  return (
+    <details className="rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm">
+      <summary className="cursor-pointer text-slate-700">
+        The agent ran {commands.length} extra read-only{" "}
+        {commands.length === 1 ? "check" : "checks"}
+      </summary>
+      <ul className="mt-2 space-y-1">
+        {commands.map((command, i) => (
+          <li key={i} className="font-mono text-xs text-slate-600">
+            {command}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
   if (diagnosis.error) {
     return (
@@ -175,6 +195,7 @@ export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
       {diagnosis.incidents.map((incident, i) => (
         <IncidentCard key={i} incident={incident} index={i} />
       ))}
+      <CommandsRun commands={diagnosis.commands_run} />
     </div>
   );
 }
