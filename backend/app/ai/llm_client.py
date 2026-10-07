@@ -86,6 +86,10 @@ def chat_messages(
             _backoff(attempt)
             continue
 
+        account_problem = _account_problem(response)
+        if account_problem:
+            raise LLMError(account_problem)
+
         if response.status_code == 200:
             try:
                 return response.json()["choices"][0]["message"]
@@ -120,3 +124,22 @@ def _backoff(attempt: int, retry_after: Optional[str] = None) -> None:
     if retry_after and retry_after.isdigit():
         delay = int(retry_after)
     time.sleep(min(delay, MAX_BACKOFF_SECONDS))
+
+
+def _account_problem(response: httpx.Response) -> Optional[str]:
+    """A readable message for errors no retry can fix (credits, key), else None.
+
+    OpenRouter reports these either as the HTTP status or, on a 200, as an
+    error code in the body.
+    """
+    code = response.status_code
+    try:
+        error = response.json().get("error") or {}
+        code = int(error.get("code") or code) if isinstance(error, dict) else code
+    except (ValueError, AttributeError, TypeError):
+        pass
+    if code == 402:
+        return "The AI provider account is out of credits. Top up at https://openrouter.ai/settings/credits."
+    if code in (401, 403):
+        return "The AI provider rejected the API key. Check OPENROUTER_API_KEY in backend/.env."
+    return None
