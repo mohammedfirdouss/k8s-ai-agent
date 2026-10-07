@@ -4,29 +4,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.ai.agent import analyze
 from app.core.auth import AuthUser, get_current_user
 from app.kubernetes import kubectl
-from app.kubernetes.kubectl import Kubectl
 from app.models.schemas import (
     ClustersResponse,
     HealthResponse,
     InvestigateRequest,
-    InvestigateResponse,
+    InvestigationStarted,
+    InvestigationStatus,
 )
-from app.services import history, progress
-from app.services.investigation import run_investigation
+from app.services import jobs, progress
 
 router = APIRouter()
-
-# Shown when kubectl cannot reach the cluster at all.
-CLUSTER_UNREACHABLE_MESSAGE = (
-    "Unable to connect to the Kubernetes cluster.\n\n"
-    "Please verify:\n"
-    "- kubeconfig path (KUBECONFIG_PATH or ~/.kube/config)\n"
-    "- the cluster is running and reachable\n"
-    "- kubectl permissions (try: kubectl get pods -A)"
-)
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
@@ -45,88 +34,49 @@ def list_clusters(_user: AuthUser = Depends(get_current_user)) -> ClustersRespon
     return ClustersResponse(**kubectl.list_contexts())
 
 
-@router.post("/investigate", response_model=InvestigateResponse, tags=["investigation"])
-def investigate(
+@router.post(
+    "/investigations",
+    response_model=InvestigationStarted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["investigation"],
+)
+def start_investigation(
     request: InvestigateRequest,
     user: AuthUser = Depends(get_current_user),
-) -> InvestigateResponse:
-    """Investigate a cluster and return an AI diagnosis with the evidence.
+) -> InvestigationStarted:
+    """Start investigating a cluster in the background.
 
-    The body carries a client-generated `investigation_id` (used to poll
-    progress and as the history row id) and an optional kubeconfig
-    `context` selecting which cluster to investigate.
-
-    Defined as a sync function on purpose: kubectl and LLM calls are
-    blocking, so FastAPI runs this in a worker thread instead of the
-    event loop.
+    Returns the investigation id at once; poll GET /investigations/{id}
+    for progress and the result. The optional `context` selects which
+    kubeconfig context (cluster) to investigate.
     """
-    # Register progress first: the frontend starts polling it immediately.
-    investigation_id = str(request.investigation_id)
-    try:
-        tracker = progress.create(investigation_id, owner_id=user.id)
-    except progress.InvestigationIdInUse:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An investigation with this id already exists.",
-        )
-
     context = request.context or None
     if context is not None and context not in kubectl.list_contexts()["clusters"]:
-        tracker.finish()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown cluster context '{context}'.",
         )
-
-    kube = Kubectl(context)
     try:
-        evidence = run_investigation(kube, tracker)
-
-        # If even pod listing failed, the cluster itself is unreachable —
-        # return a beginner-friendly message and skip AI reasoning.
-        if evidence.get("pods", {}).get("error"):
-            tracker.finish_step("AI Reasoning")
-            return InvestigateResponse(
-                investigation_id=request.investigation_id,
-                status="error",
-                diagnosis={"error": "Investigation could not run — cluster unreachable."},
-                investigation=evidence,
-                cluster_error=CLUSTER_UNREACHABLE_MESSAGE,
-            )
-
-        tracker.start_step("AI Reasoning")
-        diagnosis = analyze(evidence, kube)
-        tracker.finish_step("AI Reasoning")
-    finally:
-        tracker.finish()
-
-    saved = history.save_investigation(
-        investigation_id,
-        user,
-        context=context,
-        status="failed" if diagnosis.get("error") else "completed",
-        diagnosis=diagnosis,
-    )
-    return InvestigateResponse(
-        investigation_id=request.investigation_id,
-        status="success",
-        diagnosis=diagnosis,
-        investigation=evidence,
-        saved=saved,
-    )
+        investigation_id = jobs.start(user, context)
+    except jobs.TooManyRunning:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="You already have investigations running. Wait for one to finish.",
+        )
+    return InvestigationStarted(investigation_id=investigation_id)
 
 
-@router.get("/investigations/{investigation_id}/progress", tags=["investigation"])
-def investigation_progress(
+@router.get("/investigations/{investigation_id}", response_model=InvestigationStatus, tags=["investigation"])
+def get_investigation(
     investigation_id: UUID,
     user: AuthUser = Depends(get_current_user),
-) -> dict:
-    """Live progress of one of the caller's investigations.
+) -> InvestigationStatus:
+    """Progress of one of the caller's investigations, and its result once finished.
 
-    The frontend polls this while POST /investigate is running to show
-    step-by-step status.
+    Finished investigations stay here for 10 minutes; after that, read them
+    from the user's history.
     """
     tracker = progress.get(str(investigation_id), owner_id=user.id)
     if tracker is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investigation not found.")
-    return tracker.snapshot()
+    return InvestigationStatus(investigation_id=investigation_id, **tracker.snapshot())

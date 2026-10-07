@@ -33,15 +33,20 @@ investigation to the caller's history. The browser never writes history rows.
 | --- | --- | --- |
 | GET | `/health` | Liveness check (public) |
 | GET | `/clusters` | kubeconfig contexts available to the backend |
-| POST | `/investigate` | Body `{"investigation_id": "<uuid>", "context": "<optional>"}`; returns diagnosis + evidence |
-| GET | `/investigations/{id}/progress` | Live step progress for one of your investigations |
+| POST | `/investigations` | Body `{"context": "<optional>"}`. Starts a background investigation and returns `{"investigation_id"}` (202) |
+| GET | `/investigations/{id}` | Live progress, plus `result` (diagnosis + evidence) once `running` is false |
+
+Investigations run on a small thread pool (4 at once, 2 per user). Finished
+results stay available from `GET /investigations/{id}` for 10 minutes; after
+that they're in the user's InsForge history.
 
 ## Agent tools
 
 After collecting the standard evidence, the model may call read-only kubectl
 tools to dig deeper, for example reading a pod's YAML to see its command,
 probes or env. It gets up to `AGENT_MAX_TOOL_CALLS` calls per investigation
-(default 6; `0` disables tool use).
+(default `0`, meaning single-shot diagnosis). Tool use is experimental: the evals
+support it (`python -m evals.run` compares against `--no-tools`), but it has not been measured yet.
 
 The model never writes kubectl commands itself. It picks from four tools
 (`describe`, `get_yaml`, `list`, `logs`) and fills in typed arguments:

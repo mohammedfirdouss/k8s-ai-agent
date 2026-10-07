@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = ""
 
     # Read-only kubectl tool calls the agent may make per investigation to
-    # dig deeper than the collected evidence. 0 disables tool use.
-    AGENT_MAX_TOOL_CALLS: int = 6
+    # dig deeper than the collected evidence. 0 (default) = single-shot
+    # diagnosis; tool use is not yet measured by the evals.
+    AGENT_MAX_TOOL_CALLS: int = 0
 
     # Path to the kubeconfig file used to talk to the cluster.
     KUBECONFIG_PATH: str = ""

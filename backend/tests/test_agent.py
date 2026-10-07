@@ -1,3 +1,4 @@
+import pytest
 import json
 
 from app.ai import agent
@@ -182,3 +183,22 @@ def test_llm_client_retries_200_without_choices(monkeypatch):
     ])
     monkeypatch.setattr(llm_client.httpx, "post", lambda *a, **k: next(replies))
     assert llm_client.chat("s", "u") == "ok"
+
+
+def test_llm_client_fails_fast_on_out_of_credits(monkeypatch):
+    import httpx
+
+    from app.ai import llm_client
+
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(settings, "OPENROUTER_MODEL", "m")
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(1)
+        return httpx.Response(200, json={"error": {"message": "This request requires more credits", "code": 402}})
+
+    monkeypatch.setattr(llm_client.httpx, "post", fake_post)
+    with pytest.raises(llm_client.LLMError, match="out of credits"):
+        llm_client.chat("s", "u")
+    assert len(calls) == 1

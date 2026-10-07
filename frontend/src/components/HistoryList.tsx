@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import DiagnosisCard from "@/components/DiagnosisCard";
 import { insforge, insforgeConfigured } from "@/services/insforge";
-import type { InvestigationRow } from "@/types";
+import type { Diagnosis, InvestigationRow } from "@/types";
 
 type HistoryListProps = {
   // Signed-in user; history and its realtime channel are per user.
@@ -25,10 +26,60 @@ async function fetchInvestigations(): Promise<InvestigationRow[]> {
   return (data ?? []) as InvestigationRow[];
 }
 
+// Loads one saved diagnosis (the list query leaves this large column out).
+async function fetchDiagnosis(id: string): Promise<Diagnosis | null> {
+  if (!insforge) return null;
+  const { data, error } = await insforge.database
+    .from("investigations")
+    .select("diagnosis")
+    .eq("id", id)
+    .limit(1);
+  if (error) throw error;
+  const stored = (data?.[0] as { diagnosis?: Partial<Diagnosis> } | undefined)?.diagnosis;
+  if (!stored) return null;
+  // Normalize rows saved by older versions with fewer fields.
+  return {
+    summary: stored.summary ?? null,
+    incidents: stored.incidents ?? [],
+    root_cause: stored.root_cause ?? null,
+    confidence: stored.confidence ?? null,
+    error: stored.error ?? null,
+    commands_run: stored.commands_run ?? [],
+  };
+}
+
+function SavedDiagnosis({ id }: { id: string }) {
+  const [state, setState] = useState<
+    { status: "loading" } | { status: "error" } | { status: "loaded"; diagnosis: Diagnosis | null }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchDiagnosis(id)
+      .then((diagnosis) => !cancelled && setState({ status: "loaded", diagnosis }))
+      .catch(() => !cancelled && setState({ status: "error" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (state.status === "loading") {
+    return <p className="text-sm text-slate-500">Loading diagnosis...</p>;
+  }
+  if (state.status === "error") {
+    return <p className="text-sm text-red-700">Could not load this diagnosis.</p>;
+  }
+  if (!state.diagnosis) {
+    return <p className="text-sm text-slate-500">No details were saved for this investigation.</p>;
+  }
+  return <DiagnosisCard diagnosis={state.diagnosis} />;
+}
+
 export default function HistoryList({ userId, refreshKey }: HistoryListProps) {
   const [rows, setRows] = useState<InvestigationRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -98,7 +149,12 @@ export default function HistoryList({ userId, refreshKey }: HistoryListProps) {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100">
+                <Fragment key={row.id}>
+                <tr
+                  onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
+                  aria-expanded={expandedId === row.id}
+                  className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                >
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
                     {new Date(row.created_at).toLocaleString()}
                   </td>
@@ -125,6 +181,14 @@ export default function HistoryList({ userId, refreshKey }: HistoryListProps) {
                     </span>
                   </td>
                 </tr>
+                {expandedId === row.id && (
+                  <tr className="border-b border-slate-100">
+                    <td colSpan={5} className="bg-slate-50 p-4">
+                      <SavedDiagnosis id={row.id} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

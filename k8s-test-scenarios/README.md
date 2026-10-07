@@ -28,9 +28,9 @@ Apply one scenario at a time so the diagnosis stays focused:
 kubectl apply -f k8s-test-scenarios/01-crashloopbackoff.yaml
 # wait ~30-60s for the failure state to develop, then investigate
 # (local no-login mode; with INSFORGE_URL set, add -H "Authorization: Bearer <token>")
-curl -X POST http://localhost:8000/investigate \
-  -H 'Content-Type: application/json' \
-  -d "{\"investigation_id\": \"$(uuidgen)\"}"
+ID=$(curl -s -X POST http://localhost:8000/investigations -H 'Content-Type: application/json' -d '{}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['investigation_id'])")
+curl -s http://localhost:8000/investigations/$ID   # repeat until "running": false
 ```
 
 Clean up a scenario before applying the next:

@@ -225,6 +225,10 @@ def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: fl
         print(f"    root cause given: {diagnosis['root_cause']}")
 
 
+def _is_provider_error(error: "str | None") -> bool:
+    return bool(error) and error.startswith(("LLM request failed", "OPENROUTER_"))
+
+
 # kubectl verbs that change the cluster, i.e. actually apply a fix.
 FIX_VERBS = ("set ", "patch ", "create ", "apply ", "scale ", "rollout ", "label ", "annotate ", "delete ")
 
@@ -261,6 +265,16 @@ def _print_summary(results: "list[dict]") -> float:
         )
 
     pass_rate = sum(r["score"].passed for r in results) / len(results)
+    # Provider failures (timeouts, rate limits, credits) say nothing about
+    # diagnosis quality, so also report accuracy over answered runs.
+    provider_errors = [r for r in results if _is_provider_error(r["score"].error)]
+    answered = [r for r in results if not _is_provider_error(r["score"].error)]
+    if provider_errors:
+        accuracy = sum(r["score"].passed for r in answered) / len(answered) if answered else 0.0
+        print(
+            f"\n{len(provider_errors)} run(s) failed at the LLM provider (not a diagnosis error). "
+            f"Accuracy on the {len(answered)} answered runs: {accuracy:.0%}"
+        )
     mode = f"agent, up to {settings.AGENT_MAX_TOOL_CALLS} tool calls" if settings.AGENT_MAX_TOOL_CALLS else "single-shot"
     print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL}, {mode})")
     return pass_rate

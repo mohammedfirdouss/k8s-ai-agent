@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useInvestigate } from "@/hooks/useInvestigate";
 import { toErrorMessage } from "@/services/api";
 import { insforge, insforgeConfigured } from "@/services/insforge";
@@ -18,13 +18,13 @@ type DashboardProps = {
 export default function Dashboard({ user, onSignedOut }: DashboardProps) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
-  const { mutation, start, progress } = useInvestigate({
-    onComplete: () => setHistoryRefreshKey((k) => k + 1),
+  const refreshHistory = useCallback(() => setHistoryRefreshKey((k) => k + 1), []);
+  const { start, running, steps, result, error } = useInvestigate({
+    onComplete: refreshHistory,
   });
 
-  const running = mutation.isPending;
-  const clusterError = mutation.data?.cluster_error ?? null;
-  const diagnosis = clusterError ? undefined : mutation.data?.diagnosis;
+  const clusterError = result?.cluster_error ?? null;
+  const diagnosis = clusterError ? undefined : result?.diagnosis;
 
   async function handleSignOut() {
     try {
@@ -88,9 +88,9 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
           </p>
         </div>
 
-        {mutation.isError && (
+        {error && (
           <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {toErrorMessage(mutation.error)}
+            {toErrorMessage(error)}
           </p>
         )}
 
@@ -100,15 +100,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
           </p>
         )}
 
-        {(running || mutation.isSuccess) && progress && (
-          <InvestigationProgress
-            steps={
-              mutation.isSuccess
-                ? progress.steps.map((s) => ({ ...s, status: "done" as const }))
-                : progress.steps
-            }
-          />
-        )}
+        {steps.length > 0 && <InvestigationProgress steps={steps} />}
 
         {clusterError && (
           <section className="rounded-lg border border-red-200 bg-red-50 p-5">
