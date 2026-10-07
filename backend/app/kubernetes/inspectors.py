@@ -11,7 +11,7 @@ from typing import Optional
 
 from loguru import logger
 
-from app.kubernetes.kubectl import Kubectl
+from app.kubernetes.kubectl import Kubectl, KubectlResult
 from app.kubernetes.redact import redact
 
 # Container/pod states we consider problematic.
@@ -236,6 +236,16 @@ def _significant_lines(log_text: str) -> list[str]:
     return significant[-MAX_LOG_LINES_PER_POD:]
 
 
+def _has_logs(result: KubectlResult) -> bool:
+    """True when kubectl returned actual container output.
+
+    When a container was just replaced, kubectl prints the kubelet notice
+    "unable to retrieve container logs for ..." on stdout instead of logs.
+    """
+    text = result.stdout.strip()
+    return result.success and bool(text) and not text.startswith("unable to retrieve container logs")
+
+
 def collect_logs(kube: Kubectl, problematic_pods: list[dict]) -> dict:
     """Fetch concise, failure-focused logs for each problematic pod."""
     logs: dict[str, dict] = {}
@@ -245,10 +255,13 @@ def collect_logs(kube: Kubectl, problematic_pods: list[dict]) -> dict:
 
         # A crash-looping container often has no current logs; the
         # previous (crashed) container's logs hold the real error.
-        if (not result.success or not result.stdout.strip()):
+        if not _has_logs(result):
             previous = kube.run(["logs", name, "-n", namespace, "--tail", "100", "--previous"])
-            if previous.success and previous.stdout.strip():
+            if _has_logs(previous):
                 result = previous
+        if result.success and not _has_logs(result):
+            # e.g. the kubelet's "unable to retrieve container logs" notice.
+            result = KubectlResult(success=True, stdout="", command=result.command)
 
         key = f"{namespace}/{name}"
         if not result.success:
