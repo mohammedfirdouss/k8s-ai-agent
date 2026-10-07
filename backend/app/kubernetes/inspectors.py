@@ -59,9 +59,10 @@ MAX_LOG_LINES_PER_POD = 30
 MAX_EVENTS = 40
 MAX_LABEL_CANDIDATES = 5
 
-# A container that restarted this recently is treated as unstable even if it
-# happens to be up at the moment of inspection (e.g. liveness-probe kills).
-RECENT_RESTART_WINDOW = timedelta(minutes=30)
+# A restarted container that has been up for less than this is treated as
+# unstable even if it happens to be running right now (e.g. a liveness probe
+# killing it in a loop). Up longer than this, it recovered.
+STABLE_AFTER = timedelta(minutes=5)
 
 
 def _parse_time(value: Optional[str]) -> Optional[datetime]:
@@ -109,10 +110,18 @@ def _pod_problem_state(pod: dict, now: datetime) -> Optional[str]:
     ):
         return "NotReady"
 
-    # Up right now, but restarted recently: crashing or being killed in a loop.
+    # Up right now, but only briefly since its last restart: crashing or being
+    # killed in a loop. Restarts with reason "Unknown" come from the node or
+    # container runtime restarting (e.g. a reboot), not from the app.
     for container in container_statuses:
-        finished = _parse_time(container.get("lastState", {}).get("terminated", {}).get("finishedAt"))
-        if container.get("restartCount", 0) > 0 and finished and now - finished <= RECENT_RESTART_WINDOW:
+        last = container.get("lastState", {}).get("terminated", {})
+        started = _parse_time(container.get("state", {}).get("running", {}).get("startedAt"))
+        if (
+            container.get("restartCount", 0) > 0
+            and last.get("reason") not in (None, "Unknown")
+            and started is not None
+            and now - started < STABLE_AFTER
+        ):
             return "RestartingRecently"
     return None
 
@@ -154,6 +163,20 @@ def _container_details(pod: dict) -> "list[dict]":
             }
         )
     return details
+
+
+def _node_ready(kube: Kubectl) -> "Optional[dict[str, bool]]":
+    """Map node name -> whether it is Ready now, or None on error."""
+    data, error = kube.run_json(["get", "nodes"])
+    if error:
+        return None
+    return {
+        node["metadata"]["name"]: any(
+            c.get("type") == "Ready" and c.get("status") == "True"
+            for c in node.get("status", {}).get("conditions", [])
+        )
+        for node in data.get("items", [])
+    }
 
 
 def _pod_states(kube: Kubectl) -> "Optional[dict[str, Optional[str]]]":
@@ -253,14 +276,16 @@ def analyze_events(kube: Kubectl) -> dict:
     """Read cluster events and summarize the failure-related ones.
 
     Events outlive the problems they describe (they are kept for an hour by
-    default), so warnings about pods that have since become healthy, or no
-    longer exist, are dropped: they describe resolved issues and mislead the
-    diagnosis. The number dropped is reported instead.
+    default), so warnings about pods that have since become healthy (or no
+    longer exist) and nodes that are Ready again are dropped: they describe
+    resolved issues and mislead the diagnosis. The number dropped is
+    reported instead.
     """
     data, error = kube.run_json(["get", "events", "-A"])
     if error:
         return {"error": error, "findings": []}
     pod_states = _pod_states(kube)
+    node_ready = _node_ready(kube)
 
     findings = []
     resolved = 0
@@ -273,6 +298,10 @@ def analyze_events(kube: Kubectl) -> dict:
         if involved.get("kind") == "Pod" and pod_states is not None:
             key = f'{involved.get("namespace", "")}/{involved.get("name", "")}'
             if pod_states.get(key) is None:  # healthy now, or gone
+                resolved += 1
+                continue
+        if involved.get("kind") == "Node" and node_ready is not None:
+            if node_ready.get(involved.get("name", ""), True):  # Ready now, or gone
                 resolved += 1
                 continue
         findings.append(
