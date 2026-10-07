@@ -12,13 +12,19 @@ from typing import Optional
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
-from app.ai.llm_client import LLMError, chat
-from app.ai.prompt_builder import SYSTEM_PROMPT, build_user_prompt
+from app.ai.llm_client import LLMError, chat_messages
+from app.ai.prompt_builder import SYSTEM_PROMPT, TOOLS_PROMPT, build_user_prompt
+from app.ai.tools import TOOL_SCHEMAS, run_tool
+from app.core.config import settings
+from app.kubernetes.kubectl import Kubectl
 from app.models.schemas import Diagnosis, Incident
 
 HEALTHY_ROOT_CAUSE = "No problems detected"
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+# Follow-up requests allowed after an invalid or incomplete final answer.
+MAX_FEEDBACK_ROUNDS = 1
 
 
 class _LLMReply(BaseModel):
@@ -28,8 +34,11 @@ class _LLMReply(BaseModel):
     incidents: "list[Incident]"
 
 
-def analyze(evidence: dict) -> dict:
+def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
     """Turn investigation evidence into a diagnosis dict (see `Diagnosis`).
+
+    With `kube`, the model may also call read-only kubectl tools (up to
+    AGENT_MAX_TOOL_CALLS) to gather more evidence before answering.
 
     Never raises: when the LLM is unavailable or returns something
     unusable, the diagnosis carries an `error` message instead.
@@ -42,47 +51,82 @@ def analyze(evidence: dict) -> dict:
             confidence=95,
         ).model_dump()
 
-    user_prompt = build_user_prompt(evidence)
+    max_tool_calls = settings.AGENT_MAX_TOOL_CALLS if kube is not None else 0
+    tools = TOOL_SCHEMAS if max_tool_calls > 0 else None
+    system = SYSTEM_PROMPT + (TOOLS_PROMPT.format(max_calls=max_tool_calls) if tools else "")
+    messages: "list[dict]" = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": build_user_prompt(evidence)},
+    ]
     flagged = _flagged_problems(evidence)
+    commands_run: "list[str]" = []
     best: Optional[_LLMReply] = None
-    feedback = None
-    # Up to one retry, feeding back what was wrong: a malformed reply, or
-    # problems the inspectors flagged that no incident covers.
-    for attempt in (1, 2):
-        prompt = user_prompt + (f"\n\n{feedback}" if feedback else "")
+    feedback_rounds = 0
+
+    # Each turn the model either calls tools (results are appended and it
+    # continues) or gives its final JSON answer, which is validated and
+    # checked against the problems the inspectors flagged.
+    for _turn in range(max_tool_calls + MAX_FEEDBACK_ROUNDS + 2):
         try:
-            reply = chat(SYSTEM_PROMPT, prompt)
+            # JSON mode and tool calling don't mix on every provider.
+            message = chat_messages(messages, tools=tools, json_mode=tools is None)
         except LLMError as exc:
             if best is not None:
-                break  # keep the incomplete-but-valid first answer
+                break  # keep the incomplete-but-valid earlier answer
             logger.error("AI analysis unavailable: {}", exc)
             return Diagnosis(error=str(exc)).model_dump()
 
-        parsed, reply_error = _parse_reply(reply)
+        tool_calls = message.get("tool_calls")
+        if tool_calls:
+            messages.append(
+                {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
+            )
+            for call in tool_calls:
+                if len(commands_run) >= max_tool_calls:
+                    output = "Tool budget exhausted. Respond now with the final JSON object."
+                else:
+                    function = call.get("function", {})
+                    output, command = run_tool(kube, function.get("name", ""), function.get("arguments", ""))
+                    if command:
+                        commands_run.append("kubectl " + " ".join(command))
+                        logger.info("Agent ran: {}", commands_run[-1])
+                messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": output})
+            continue
+
+        content = message.get("content") or ""
+        parsed, reply_error = _parse_reply(content)
         if parsed is None:
-            logger.warning("LLM reply attempt {} was not a valid diagnosis: {}", attempt, reply_error)
+            logger.warning("LLM reply was not a valid diagnosis: {}", reply_error)
             feedback = (
                 f"Your previous reply was invalid ({reply_error}). "
                 "Respond with ONLY the JSON object in the required shape."
             )
-            continue
-
-        missing = _uncovered(flagged, parsed)
-        if best is None or len(missing) < len(_uncovered(flagged, best)):
-            best = parsed
-        if not missing:
+        else:
+            missing = _uncovered(flagged, parsed)
+            if best is None or len(missing) < len(_uncovered(flagged, best)):
+                best = parsed
+            if not missing:
+                break
+            logger.warning("LLM reply missed flagged problems: {}", missing)
+            feedback = (
+                "Your previous reply did not include an incident for these problems found in "
+                "the evidence: " + "; ".join(missing) + ". Respond again with the full JSON "
+                "object, with one incident for every independent problem."
+            )
+        if feedback_rounds >= MAX_FEEDBACK_ROUNDS:
             break
-        logger.warning("LLM reply attempt {} missed flagged problems: {}", attempt, missing)
-        feedback = (
-            "Your previous reply did not include an incident for these problems found in "
-            "the evidence: " + "; ".join(missing) + ". Respond again with the full JSON "
-            "object, with one incident for every independent problem."
-        )
+        feedback_rounds += 1
+        messages += [{"role": "assistant", "content": content}, {"role": "user", "content": feedback}]
 
     if best is None:
-        return Diagnosis(error="AI returned a response that could not be parsed").model_dump()
-    diagnosis = _to_diagnosis(best)
-    logger.info("Diagnosis: {} incident(s) — {}", len(diagnosis.incidents), diagnosis.root_cause)
+        return Diagnosis(
+            error="AI returned a response that could not be parsed", commands_run=commands_run
+        ).model_dump()
+    diagnosis = _to_diagnosis(best).model_copy(update={"commands_run": commands_run})
+    logger.info(
+        "Diagnosis: {} incident(s), {} tool call(s) — {}",
+        len(diagnosis.incidents), len(commands_run), diagnosis.root_cause,
+    )
     return diagnosis.model_dump()
 
 

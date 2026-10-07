@@ -60,6 +60,8 @@ class Diagnosis(BaseModel):
     root_cause: Optional[str] = None
     confidence: Optional[float] = None
     error: Optional[str] = None
+    # Extra read-only kubectl commands the agent chose to run.
+    commands_run: "list[str]" = []
 
 
 class InvestigateRequest(BaseModel):

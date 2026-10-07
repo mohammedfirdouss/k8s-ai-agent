@@ -7,12 +7,15 @@ loudly: the inspectors changed what they ask for, so re-record.
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from app.kubernetes.kubectl import Kubectl, KubectlResult
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+# Fixture key holding when it was recorded (not a kubectl command).
+RECORDED_AT_KEY = "__recorded_at__"
 
 
 def _key(args: "list[str]") -> str:
@@ -25,6 +28,10 @@ class RecordingKubectl(Kubectl):
     def __init__(self, context: Optional[str] = None):
         super().__init__(context)
         self.recorded: "dict[str, dict]" = {}
+        self.recorded_at = super().now()
+
+    def now(self) -> datetime:
+        return self.recorded_at
 
     def run(self, args: "list[str]") -> KubectlResult:
         result = super().run(args)
@@ -37,7 +44,8 @@ class RecordingKubectl(Kubectl):
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.recorded, indent=1, sort_keys=True) + "\n")
+        data = {RECORDED_AT_KEY: self.recorded_at.isoformat(), **self.recorded}
+        path.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
 class MissingFixture(Exception):
@@ -50,10 +58,24 @@ class ReplayKubectl(Kubectl):
     def __init__(self, path: Path):
         super().__init__(None)
         self.path = path
-        self.recorded: "dict[str, dict]" = json.loads(path.read_text())
+        data = json.loads(path.read_text())
+        self.recorded_at = datetime.fromisoformat(data.pop(RECORDED_AT_KEY))
+        self.recorded: "dict[str, dict]" = data
+        # Strict while collecting evidence (a miss means re-record). The
+        # agent's tool calls are open-ended, so for those a miss is answered
+        # as a kubectl error and counted instead.
+        self.strict = True
+        self.misses: "list[str]" = []
+
+    def now(self) -> datetime:
+        # Replays see the cluster as it was when recorded.
+        return self.recorded_at
 
     def run(self, args: "list[str]") -> KubectlResult:
         entry = self.recorded.get(_key(args))
+        if entry is None and not self.strict:
+            self.misses.append(_key(args))
+            return KubectlResult(success=False, stderr="(not available in this recording)", command=["kubectl", *args])
         if entry is None:
             raise MissingFixture(
                 f"{self.path.name} has no recording of `kubectl {_key(args)}`. "

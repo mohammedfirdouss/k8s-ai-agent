@@ -15,7 +15,7 @@ EVIDENCE = {"pods": {"healthy": True}, "logs": {}, "events": {}, "deployments": 
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(routes, "run_investigation", lambda kube, tracker: EVIDENCE)
-    monkeypatch.setattr(routes, "analyze", lambda evidence: {"root_cause": "x", "confidence": 50})
+    monkeypatch.setattr(routes, "analyze", lambda evidence, kube=None: {"root_cause": "x", "confidence": 50})
     monkeypatch.setattr(routes.kubectl, "list_contexts", lambda: {"clusters": ["prod"], "current": "prod", "error": None})
     return TestClient(app)
 

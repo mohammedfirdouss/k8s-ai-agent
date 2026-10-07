@@ -1,0 +1,23 @@
+# Scenario 9 — Ambiguous crash: the container exits with code 1 without
+# logging anything. The evidence cannot reveal why, so a well-calibrated
+# diagnosis must say so and report LOW confidence.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: legacy-batch
+  labels:
+    app: legacy-batch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: legacy-batch
+  template:
+    metadata:
+      labels:
+        app: legacy-batch
+    spec:
+      containers:
+        - name: job
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep 2; exit 1"]

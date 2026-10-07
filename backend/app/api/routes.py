@@ -95,7 +95,7 @@ def investigate(
             )
 
         tracker.start_step("AI Reasoning")
-        diagnosis = analyze(evidence)
+        diagnosis = analyze(evidence, kube)
         tracker.finish_step("AI Reasoning")
     finally:
         tracker.finish()

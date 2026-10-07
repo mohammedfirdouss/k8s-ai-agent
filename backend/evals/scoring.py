@@ -11,10 +11,12 @@ class ExpectationScore:
     named_workload: bool
     cause: bool
     fix: bool
+    # False when the incident claimed more confidence than the evidence allows.
+    calibrated: bool = True
 
     @property
     def passed(self) -> bool:
-        return self.named_workload and self.cause and self.fix
+        return self.named_workload and self.cause and self.fix and self.calibrated
 
 
 @dataclass
@@ -23,16 +25,20 @@ class ScenarioScore:
     error: "str | None"
     expectations: "list[ExpectationScore]"
     confidence: "float | None"
+    # Control scenarios: incidents reported where none should be.
+    false_alarms: int = 0
 
     @property
     def passed(self) -> bool:
-        return self.error is None and all(e.passed for e in self.expectations)
+        return self.error is None and self.false_alarms == 0 and all(e.passed for e in self.expectations)
 
     @property
     def coverage(self) -> float:
         """Fraction of the scenario's broken workloads diagnosed correctly."""
-        if self.error is not None or not self.expectations:
+        if self.error is not None:
             return 0.0
+        if not self.expectations:  # control scenario
+            return 1.0 if self.false_alarms == 0 else 0.0
         return sum(e.passed for e in self.expectations) / len(self.expectations)
 
     def to_dict(self) -> dict:
@@ -66,6 +72,7 @@ def score(scenario: Scenario, diagnosis: dict) -> ScenarioScore:
         error=diagnosis.get("error"),
         confidence=diagnosis.get("confidence"),
         expectations=[_score_expectation(e, incidents) for e in scenario.expectations],
+        false_alarms=len(incidents) if scenario.expect_healthy and diagnosis.get("incidents") is not None else 0,
     )
 
 
@@ -82,12 +89,15 @@ def _score_expectation(expectation: Expectation, incidents: "list[dict]") -> Exp
         all_text = " ".join(filter(None, [incident.get("workload"), cause_text, fix_text]))
         if expectation.workload.lower() not in all_text.lower():
             continue
+        confidence = incident.get("confidence")
         candidate = ExpectationScore(
             workload=expectation.workload,
             named_workload=True,
             cause=matches(cause_text, expectation.cause),
             fix=matches(fix_text, expectation.fix),
+            calibrated=expectation.max_confidence is None
+            or (confidence is not None and confidence <= expectation.max_confidence),
         )
-        if (candidate.cause + candidate.fix) > (best.cause + best.fix) or not best.named_workload:
+        if candidate.passed or (candidate.cause + candidate.fix) > (best.cause + best.fix) or not best.named_workload:
             best = candidate
     return best

@@ -28,6 +28,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.ai.agent import analyze
+from app.ai.tools import prefetch_commands
 from app.core.config import settings
 from app.kubernetes.kubectl import Kubectl
 from app.services.investigation import run_investigation
@@ -58,19 +59,26 @@ def main() -> int:
     results = []
     for scenario in selected:
         print(f"\n▶ {scenario.id}: {scenario.description}")
-        evidence = _collect_live(scenario, args) if args.live else _collect_replay(scenario)
-        if evidence is None:
+        collected = _collect_live(scenario, args) if args.live else _collect_replay(scenario)
+        if collected is None:
             continue
+        evidence, kube = collected
         if args.no_llm:
             print("  evidence collected (LLM skipped)")
             continue
+        if isinstance(kube, ReplayKubectl):
+            kube.strict = False
         for attempt in range(1, args.repeat + 1):
+            misses_before = len(getattr(kube, "misses", []))
             started = time.monotonic()
-            diagnosis = analyze(evidence)
+            diagnosis = analyze(evidence, kube)
             latency = time.monotonic() - started
             result = score(scenario, diagnosis)
-            results.append({"score": result, "latency": latency, "diagnosis": diagnosis})
+            misses = getattr(kube, "misses", [])[misses_before:]
+            results.append({"score": result, "latency": latency, "diagnosis": diagnosis, "fixture_misses": misses})
             _print_attempt(result, attempt, args.repeat, latency, diagnosis)
+            if misses:
+                print(f"    note: {len(misses)} tool call(s) not in fixture: {', '.join(misses[:3])}")
 
     if not results:
         return 0
@@ -87,9 +95,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--record", action="store_true", help="with --live: save fixtures from this run")
     parser.add_argument("--repeat", type=int, default=1, help="LLM runs per scenario (measures variance)")
     parser.add_argument("--no-llm", action="store_true", help="only collect evidence (e.g. to record)")
+    parser.add_argument("--no-tools", action="store_true", help="single-shot diagnosis without agent tool calls")
     parser.add_argument("--min-pass", type=float, default=0.0, help="exit 1 if pass rate is below this (0-1)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    if args.no_tools:
+        settings.AGENT_MAX_TOOL_CALLS = 0
     if args.record and not args.live:
         parser.error("--record requires --live")
     return args
@@ -98,15 +109,16 @@ def _parse_args() -> argparse.Namespace:
 # --- evidence collection ----------------------------------------------------
 
 
-def _collect_replay(scenario: Scenario) -> "dict | None":
+def _collect_replay(scenario: Scenario) -> "tuple[dict, Kubectl] | None":
     path = fixture_path(scenario.id)
     if not path.exists():
         print(f"  no fixture at {path.name} — record it with --live --record")
         return None
-    return run_investigation(ReplayKubectl(path), ProgressTracker("eval"))
+    kube = ReplayKubectl(path)
+    return run_investigation(kube, ProgressTracker("eval")), kube
 
 
-def _collect_live(scenario: Scenario, args: argparse.Namespace) -> "dict | None":
+def _collect_live(scenario: Scenario, args: argparse.Namespace) -> "tuple[dict, Kubectl] | None":
     setup = Kubectl(args.context)
     ns = scenario.namespace
     _run_or_die(setup, ["create", "namespace", ns])
@@ -119,11 +131,27 @@ def _collect_live(scenario: Scenario, args: argparse.Namespace) -> "dict | None"
         kube = RecordingKubectl(args.context) if args.record else Kubectl(args.context)
         evidence = run_investigation(kube, ProgressTracker("eval"))
         if args.record:
+            _prefetch_for_agent(kube, ns)
             kube.save(fixture_path(scenario.id))
-            print(f"  recorded {fixture_path(scenario.id).name}")
-        return evidence
+            print(f"  recorded {fixture_path(scenario.id).name} ({len(kube.recorded)} commands)")
+        return evidence, kube
     finally:
         setup.run(["delete", "namespace", ns, "--wait=true", "--timeout=120s"])
+
+
+def _prefetch_for_agent(kube: RecordingKubectl, namespace: str) -> None:
+    """Record every tool command the agent could run about this scenario."""
+    objects: "dict[str, list[str]]" = {}
+    for kind in ("pod", "deployment", "replicaset", "service", "endpoints", "configmap"):
+        data, error = kube.run_json(["get", kind, "-n", namespace])
+        if not error:
+            objects[kind] = [item["metadata"]["name"] for item in data.get("items", [])]
+    for command in prefetch_commands(objects, namespace):
+        kube.run(command)
+    nodes, error = kube.run_json(["get", "nodes"])
+    for node in [] if error else nodes.get("items", []):
+        kube.run(["describe", "node", node["metadata"]["name"]])
+        kube.run(["get", "node", node["metadata"]["name"], "-o", "yaml"])
 
 
 def _wait_until_ready(kube: Kubectl, scenario: Scenario) -> bool:
@@ -131,6 +159,8 @@ def _wait_until_ready(kube: Kubectl, scenario: Scenario) -> bool:
     while time.monotonic() < deadline:
         data, error = kube.run_json(["get", "pods", "-n", scenario.namespace])
         if not error and scenario.ready(data.get("items", [])):
+            if scenario.settle_seconds:
+                time.sleep(scenario.settle_seconds)
             return True
         time.sleep(POLL_SECONDS)
     return False
@@ -184,12 +214,30 @@ def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: fl
     print(f"{label} {verdict}  coverage {result.coverage:.0%}  confidence {confidence}  {latency:.1f}s")
     if result.error:
         print(f"    error: {result.error}")
+    if result.false_alarms:
+        print(f"    ✗ {result.false_alarms} false alarm(s) on a healthy cluster")
     for e in result.expectations:
         if not e.passed:
-            missing = [name for name, ok in (("workload", e.named_workload), ("cause", e.cause), ("fix", e.fix)) if not ok]
+            checks = (("workload", e.named_workload), ("cause", e.cause), ("fix", e.fix), ("calibration", e.calibrated))
+            missing = [name for name, ok in checks if not ok]
             print(f"    ✗ {e.workload}: missing {', '.join(missing)}")
     if not result.passed and diagnosis.get("root_cause"):
         print(f"    root cause given: {diagnosis['root_cause']}")
+
+
+# kubectl verbs that change the cluster, i.e. actually apply a fix.
+FIX_VERBS = ("set ", "patch ", "create ", "apply ", "scale ", "rollout ", "label ", "annotate ", "delete ")
+
+
+def _actionable_share(incidents: "list[dict]") -> "float | None":
+    """Share of incidents with at least one command that applies a fix (not edit/get/describe/logs)."""
+    if not incidents:
+        return None
+    def actionable(incident: dict) -> bool:
+        return any(
+            any(f"kubectl {verb}" in cmd for verb in FIX_VERBS) for cmd in incident.get("kubectl_commands") or []
+        )
+    return sum(actionable(i) for i in incidents) / len(incidents)
 
 
 def _print_summary(results: "list[dict]") -> float:
@@ -197,17 +245,24 @@ def _print_summary(results: "list[dict]") -> float:
     for r in results:
         by_scenario.setdefault(r["score"].scenario, []).append(r)
 
-    print(f"\n{'scenario':<12} {'pass':>7} {'coverage':>9} {'confidence':>11} {'latency':>8}")
+    print(f"\n{'scenario':<13} {'pass':>7} {'coverage':>9} {'confidence':>11} {'actionable':>11} {'tools':>6} {'latency':>8}")
     for scenario_id, runs in by_scenario.items():
         passes = sum(r["score"].passed for r in runs)
         coverage = statistics.mean(r["score"].coverage for r in runs)
         confidences = [r["score"].confidence for r in runs if r["score"].confidence is not None]
         confidence = f"{statistics.mean(confidences):.0f}%" if confidences else "—"
         latency = statistics.mean(r["latency"] for r in runs)
-        print(f"{scenario_id:<12} {passes:>3}/{len(runs):<3} {coverage:>9.0%} {confidence:>11} {latency:>7.1f}s")
+        actionable = _actionable_share([i for r in runs for i in r["diagnosis"].get("incidents", [])])
+        actionable_text = f"{actionable:.0%}" if actionable is not None else "—"
+        tool_calls = statistics.mean(len(r["diagnosis"].get("commands_run") or []) for r in runs)
+        print(
+            f"{scenario_id:<13} {passes:>3}/{len(runs):<3} {coverage:>9.0%} {confidence:>11} "
+            f"{actionable_text:>11} {tool_calls:>6.1f} {latency:>7.1f}s"
+        )
 
     pass_rate = sum(r["score"].passed for r in results) / len(results)
-    print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL})")
+    mode = f"agent, up to {settings.AGENT_MAX_TOOL_CALLS} tool calls" if settings.AGENT_MAX_TOOL_CALLS else "single-shot"
+    print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL}, {mode})")
     return pass_rate
 
 
@@ -218,6 +273,7 @@ def _save(results: "list[dict]", args: argparse.Namespace) -> None:
     path.write_text(json.dumps({
         "model": settings.OPENROUTER_MODEL,
         "mode": "live" if args.live else "replay",
+        "max_tool_calls": settings.AGENT_MAX_TOOL_CALLS,
         "runs": [
             {**r["score"].to_dict(), "latency_seconds": round(r["latency"], 2), "diagnosis": r["diagnosis"]}
             for r in results
