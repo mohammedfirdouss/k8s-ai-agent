@@ -8,6 +8,7 @@ live in one place.
 import json
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 from loguru import logger
@@ -48,6 +49,10 @@ class Kubectl:
 
     def __init__(self, context: Optional[str] = None):
         self.context = context or None
+
+    def now(self) -> datetime:
+        """The cluster-observation time that ages (e.g. restart recency) are measured against."""
+        return datetime.now(timezone.utc)
 
     def run(self, args: list[str]) -> KubectlResult:
         """Run a kubectl command and return a structured result.

@@ -1,0 +1,30 @@
+# Scenario 8 — Liveness probe failure: the probe targets port 8080 but nginx
+# listens on 80, so the kubelet keeps killing and restarting a healthy app.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service
+  labels:
+    app: search-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: search-service
+  template:
+    metadata:
+      labels:
+        app: search-service
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080   # WRONG — nginx listens on 80
+            initialDelaySeconds: 2
+            periodSeconds: 3
+            failureThreshold: 1

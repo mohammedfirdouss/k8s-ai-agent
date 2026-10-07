@@ -1,0 +1,38 @@
+# Scenario 10 — Healthy control: a working deployment and service. A correct
+# investigation reports no incidents (catches false alarms).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-web
+  labels:
+    app: catalog-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-web
+  template:
+    metadata:
+      labels:
+        app: catalog-web
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-web
+spec:
+  selector:
+    app: catalog-web
+  ports:
+    - port: 80
+      targetPort: 80

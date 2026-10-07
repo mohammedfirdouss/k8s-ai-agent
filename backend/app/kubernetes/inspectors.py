@@ -6,6 +6,7 @@ single structured payload. No AI reasoning happens here — this layer
 only gathers evidence, like a junior DevOps engineer running kubectl.
 """
 
+from datetime import datetime, timedelta
 from typing import Optional
 
 from loguru import logger
@@ -58,8 +59,21 @@ MAX_LOG_LINES_PER_POD = 30
 MAX_EVENTS = 40
 MAX_LABEL_CANDIDATES = 5
 
+# A container that restarted this recently is treated as unstable even if it
+# happens to be up at the moment of inspection (e.g. liveness-probe kills).
+RECENT_RESTART_WINDOW = timedelta(minutes=30)
 
-def _pod_problem_state(pod: dict) -> Optional[str]:
+
+def _parse_time(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _pod_problem_state(pod: dict, now: datetime) -> Optional[str]:
     """Return the problematic state of a pod, or None if it looks healthy."""
     phase = pod.get("status", {}).get("phase", "")
     if phase == "Succeeded":
@@ -94,6 +108,12 @@ def _pod_problem_state(pod: dict) -> Optional[str]:
         "running" in c.get("state", {}) and not c.get("ready") for c in container_statuses
     ):
         return "NotReady"
+
+    # Up right now, but restarted recently: crashing or being killed in a loop.
+    for container in container_statuses:
+        finished = _parse_time(container.get("lastState", {}).get("terminated", {}).get("finishedAt"))
+        if container.get("restartCount", 0) > 0 and finished and now - finished <= RECENT_RESTART_WINDOW:
+            return "RestartingRecently"
     return None
 
 
@@ -125,7 +145,10 @@ def _container_details(pod: dict) -> "list[dict]":
             {
                 "name": container.get("name"),
                 "image": container.get("image"),
+                "requests": container.get("resources", {}).get("requests", {}),
                 "limits": container.get("resources", {}).get("limits", {}),
+                # e.g. 'configmap "x" not found' for CreateContainerConfigError.
+                "waiting_message": redact(status.get("state", {}).get("waiting", {}).get("message", ""))[:300] or None,
                 "last_exit_code": last.get("exitCode"),
                 "last_termination_reason": last.get("reason"),
             }
@@ -138,7 +161,8 @@ def _pod_states(kube: Kubectl) -> "Optional[dict[str, Optional[str]]]":
     data, error = kube.run_json(["get", "pods", "-A"])
     if error:
         return None
-    return {_pod_key(pod): _pod_problem_state(pod) for pod in data.get("items", [])}
+    now = kube.now()
+    return {_pod_key(pod): _pod_problem_state(pod, now) for pod in data.get("items", [])}
 
 
 def inspect_pods(kube: Kubectl) -> dict:
@@ -148,9 +172,10 @@ def inspect_pods(kube: Kubectl) -> dict:
         return {"healthy": None, "error": error, "problematic_pods": []}
 
     problematic = []
+    now = kube.now()
     pods = data.get("items", [])
     for pod in pods:
-        state = _pod_problem_state(pod)
+        state = _pod_problem_state(pod, now)
         if state is None:
             continue
         restart_count = sum(
