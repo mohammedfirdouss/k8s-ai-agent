@@ -36,6 +36,22 @@ investigation to the caller's history. The browser never writes history rows.
 | POST | `/investigate` | Body `{"investigation_id": "<uuid>", "context": "<optional>"}`; returns diagnosis + evidence |
 | GET | `/investigations/{id}/progress` | Live step progress for one of your investigations |
 
+## Agent tools
+
+After collecting the standard evidence, the model may call read-only kubectl
+tools to dig deeper, for example reading a pod's YAML to see its command,
+probes or env. It gets up to `AGENT_MAX_TOOL_CALLS` calls per investigation
+(default 6; `0` disables tool use).
+
+The model never writes kubectl commands itself. It picks from four tools
+(`describe`, `get_yaml`, `list`, `logs`) and fills in typed arguments:
+
+- Kinds come from an allowlist that excludes Secrets.
+- Names must be valid Kubernetes names, so nothing can be passed as a flag.
+- Every output is redacted and truncated before the model sees it.
+
+The commands the agent ran are returned as `commands_run` and shown in the UI.
+
 Pod logs and event messages are scrubbed of likely secrets (URL credentials,
 tokens, `*_PASSWORD=` style values, private keys) before they are sent to the LLM.
 
@@ -61,6 +77,8 @@ python -m evals.run --repeat 3
 kind create cluster --name k8s-ai-test
 python -m evals.run --live --context kind-k8s-ai-test --record
 ```
+
+`--no-tools` runs single-shot diagnosis (no agent tool calls) for comparison.
 
 Fixtures (`evals/fixtures/`) store raw kubectl output, so replay runs the real
 inspectors and inspector changes get evaluated too. Results are written to
