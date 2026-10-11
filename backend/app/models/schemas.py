@@ -62,6 +62,9 @@ class Diagnosis(BaseModel):
     error: Optional[str] = None
     # Extra read-only kubectl commands the agent chose to run.
     commands_run: "list[str]" = []
+    # LLM calls, tokens, cost (USD) and seconds spent on this diagnosis;
+    # None when no LLM call was made (e.g. a healthy cluster).
+    usage: Optional[dict] = None
 
 
 class InvestigateRequest(BaseModel):

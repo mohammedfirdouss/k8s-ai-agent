@@ -45,6 +45,7 @@ async function fetchDiagnosis(id: string): Promise<Diagnosis | null> {
     confidence: stored.confidence ?? null,
     error: stored.error ?? null,
     commands_run: stored.commands_run ?? [],
+    usage: stored.usage ?? null,
   };
 }
 

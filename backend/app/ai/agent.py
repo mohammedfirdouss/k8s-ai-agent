@@ -12,7 +12,7 @@ from typing import Optional
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
-from app.ai.llm_client import LLMError, chat_messages
+from app.ai.llm_client import LLMError, Usage, chat_messages
 from app.ai.prompt_builder import SYSTEM_PROMPT, TOOLS_PROMPT, build_user_prompt
 from app.ai.tools import TOOL_SCHEMAS, run_tool
 from app.core.config import settings
@@ -60,6 +60,7 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
     ]
     flagged = _flagged_problems(evidence)
     commands_run: "list[str]" = []
+    usage = Usage()
     best: Optional[_LLMReply] = None
     feedback_rounds = 0
 
@@ -69,12 +70,12 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
     for _turn in range(max_tool_calls + MAX_FEEDBACK_ROUNDS + 2):
         try:
             # JSON mode and tool calling don't mix on every provider.
-            message = chat_messages(messages, tools=tools, json_mode=tools is None)
+            message = chat_messages(messages, tools=tools, json_mode=tools is None, usage=usage)
         except LLMError as exc:
             if best is not None:
                 break  # keep the incomplete-but-valid earlier answer
             logger.error("AI analysis unavailable: {}", exc)
-            return Diagnosis(error=str(exc)).model_dump()
+            return Diagnosis(error=str(exc), usage=usage.to_dict()).model_dump()
 
         tool_calls = message.get("tool_calls")
         if tool_calls:
@@ -120,12 +121,16 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
 
     if best is None:
         return Diagnosis(
-            error="AI returned a response that could not be parsed", commands_run=commands_run
+            error="AI returned a response that could not be parsed",
+            commands_run=commands_run,
+            usage=usage.to_dict(),
         ).model_dump()
-    diagnosis = _to_diagnosis(best).model_copy(update={"commands_run": commands_run})
+    diagnosis = _to_diagnosis(best).model_copy(
+        update={"commands_run": commands_run, "usage": usage.to_dict()}
+    )
     logger.info(
-        "Diagnosis: {} incident(s), {} tool call(s) — {}",
-        len(diagnosis.incidents), len(commands_run), diagnosis.root_cause,
+        "Diagnosis: {} incident(s), {} tool call(s), LLM usage {} — {}",
+        len(diagnosis.incidents), len(commands_run), usage.to_dict(), diagnosis.root_cause,
     )
     return diagnosis.model_dump()
 

@@ -33,6 +33,16 @@ export interface Diagnosis {
   error: string | null;
   // Extra read-only kubectl commands the agent chose to run.
   commands_run: string[];
+  // LLM usage for this diagnosis; null when no LLM call was needed.
+  usage: LLMUsage | null;
+}
+
+export interface LLMUsage {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number | null;
+  seconds: number;
 }
 
 export interface InvestigateResponse {

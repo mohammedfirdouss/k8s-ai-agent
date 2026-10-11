@@ -8,6 +8,8 @@ import ClusterSelector from "@/components/ClusterSelector";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import HistoryList from "@/components/HistoryList";
 import InvestigationProgress from "@/components/InvestigationProgress";
+import StatusBadge from "@/components/StatusBadge";
+import { useHealth } from "@/hooks/useHealth";
 import type { SignedInUser } from "@/types";
 
 type DashboardProps = {
@@ -23,6 +25,8 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
     onComplete: refreshHistory,
   });
 
+  const health = useHealth();
+  const backendDown = health.isError;
   const clusterError = result?.cluster_error ?? null;
   const diagnosis = clusterError ? undefined : result?.diagnosis;
 
@@ -39,9 +43,15 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">
-            AI Kubernetes Agent
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">
+              AI Kubernetes Agent
+            </h1>
+            <StatusBadge
+              tone={health.isSuccess ? "ok" : backendDown ? "down" : "pending"}
+              label={health.isSuccess ? "Backend online" : backendDown ? "Backend offline" : "Checking backend"}
+            />
+          </div>
           {insforgeConfigured && (
             <div className="flex items-center gap-3">
               {user && <span className="text-sm text-slate-600">{user.email}</span>}
@@ -58,6 +68,13 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
       </header>
 
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+        {backendDown && (
+          <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {toErrorMessage(health.error)} Investigations are unavailable until it is
+            reachable.
+          </p>
+        )}
+
         {!insforgeConfigured && (
           <p className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
             InsForge not configured — running without login and history
@@ -74,7 +91,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
           <button
             type="button"
             onClick={() => start(selectedCluster)}
-            disabled={running}
+            disabled={running || backendDown}
             className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {running && (

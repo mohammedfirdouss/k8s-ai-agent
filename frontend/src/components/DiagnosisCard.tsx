@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Diagnosis, Incident, Severity } from "@/types";
+import type { Diagnosis, Incident, LLMUsage, Severity } from "@/types";
 
 type DiagnosisCardProps = {
   diagnosis: Diagnosis;
@@ -147,6 +147,18 @@ function CommandsRun({ commands }: { commands: string[] }) {
   );
 }
 
+function UsageFooter({ usage }: { usage: LLMUsage | null | undefined }) {
+  if (!usage?.calls) return null;
+  const tokens = usage.prompt_tokens + usage.completion_tokens;
+  const parts = [
+    `${usage.calls} AI ${usage.calls === 1 ? "call" : "calls"}`,
+    `${tokens.toLocaleString()} tokens`,
+    usage.cost_usd !== null ? `$${usage.cost_usd.toFixed(4)}` : null,
+    `${usage.seconds.toFixed(1)}s`,
+  ].filter(Boolean);
+  return <p className="text-right text-xs text-slate-400">{parts.join(" · ")}</p>;
+}
+
 export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
   if (diagnosis.error) {
     return (
@@ -196,6 +208,7 @@ export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
         <IncidentCard key={i} incident={incident} index={i} />
       ))}
       <CommandsRun commands={diagnosis.commands_run} />
+      <UsageFooter usage={diagnosis.usage} />
     </div>
   );
 }

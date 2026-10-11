@@ -36,7 +36,11 @@ export default function ClusterSelector({
     onSelect(fallback);
   }, [selected, clusters, data, onSelect]);
 
-  if (isError || (data && (clusters.length === 0 || data.error))) {
+  if (isError) {
+    return <p className="text-xs text-slate-400">Cluster list unavailable</p>;
+  }
+
+  if (data && (clusters.length === 0 || data.error)) {
     return (
       <p className="text-xs text-slate-400">
         No clusters found in kubeconfig — using default context
