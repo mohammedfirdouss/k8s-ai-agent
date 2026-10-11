@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import DiagnosisCard from "@/components/DiagnosisCard";
+import FeedbackPrompt from "@/components/FeedbackPrompt";
 import { insforge, insforgeConfigured } from "@/services/insforge";
 import type { Diagnosis, InvestigationRow } from "@/types";
 
@@ -27,15 +28,21 @@ async function fetchInvestigations(): Promise<InvestigationRow[]> {
 }
 
 // Loads one saved diagnosis (the list query leaves this large column out).
-async function fetchDiagnosis(id: string): Promise<Diagnosis | null> {
-  if (!insforge) return null;
+type SavedRow = { diagnosis: Diagnosis | null; feedback: "helpful" | "not_helpful" | null };
+
+async function fetchDiagnosis(id: string): Promise<SavedRow> {
+  if (!insforge) return { diagnosis: null, feedback: null };
   const { data, error } = await insforge.database
     .from("investigations")
-    .select("diagnosis")
+    .select("diagnosis, feedback")
     .eq("id", id)
     .limit(1);
   if (error) throw error;
-  const stored = (data?.[0] as { diagnosis?: Partial<Diagnosis> } | undefined)?.diagnosis;
+  const row = data?.[0] as { diagnosis?: Partial<Diagnosis>; feedback?: SavedRow["feedback"] } | undefined;
+  return { diagnosis: normalize(row?.diagnosis), feedback: row?.feedback ?? null };
+}
+
+function normalize(stored: Partial<Diagnosis> | undefined): Diagnosis | null {
   if (!stored) return null;
   // Normalize rows saved by older versions with fewer fields.
   return {
@@ -51,13 +58,13 @@ async function fetchDiagnosis(id: string): Promise<Diagnosis | null> {
 
 function SavedDiagnosis({ id }: { id: string }) {
   const [state, setState] = useState<
-    { status: "loading" } | { status: "error" } | { status: "loaded"; diagnosis: Diagnosis | null }
+    { status: "loading" } | { status: "error" } | ({ status: "loaded" } & SavedRow)
   >({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
     fetchDiagnosis(id)
-      .then((diagnosis) => !cancelled && setState({ status: "loaded", diagnosis }))
+      .then((row) => !cancelled && setState({ status: "loaded", ...row }))
       .catch(() => !cancelled && setState({ status: "error" }));
     return () => {
       cancelled = true;
@@ -73,7 +80,12 @@ function SavedDiagnosis({ id }: { id: string }) {
   if (!state.diagnosis) {
     return <p className="text-sm text-slate-500">No details were saved for this investigation.</p>;
   }
-  return <DiagnosisCard diagnosis={state.diagnosis} />;
+  return (
+    <div className="space-y-4">
+      <DiagnosisCard diagnosis={state.diagnosis} />
+      {!state.diagnosis.error && <FeedbackPrompt investigationId={id} initial={state.feedback} />}
+    </div>
+  );
 }
 
 export default function HistoryList({ userId, refreshKey }: HistoryListProps) {

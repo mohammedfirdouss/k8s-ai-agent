@@ -6,6 +6,7 @@ import { toErrorMessage } from "@/services/api";
 import { insforge, insforgeConfigured } from "@/services/insforge";
 import ClusterSelector from "@/components/ClusterSelector";
 import DiagnosisCard from "@/components/DiagnosisCard";
+import FeedbackPrompt from "@/components/FeedbackPrompt";
 import HistoryList from "@/components/HistoryList";
 import InvestigationProgress from "@/components/InvestigationProgress";
 import StatusBadge from "@/components/StatusBadge";
@@ -131,6 +132,9 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
         )}
 
         {diagnosis && <DiagnosisCard diagnosis={diagnosis} />}
+        {diagnosis && result?.saved && !diagnosis.error && (
+          <FeedbackPrompt key={result.investigation_id} investigationId={result.investigation_id} />
+        )}
 
         <HistoryList userId={user?.id ?? null} refreshKey={historyRefreshKey} />
       </div>

@@ -34,7 +34,10 @@ history and shows a small notice instead.
 The `investigations` table, its owner-only RLS policies and the per-user
 realtime channel are defined in `migrations/` at the repo root. History rows are
 written by the backend (which needs `INSFORGE_URL` and `INSFORGE_API_KEY`); the
-frontend only reads the signed-in user's rows. API calls to the backend carry
+frontend only reads the signed-in user's rows. Sign-up asks for the 6-digit code InsForge
+emails when email verification is on (`insforge.toml`). Users can rate each
+diagnosis 👍/👎; the database lets them update only those feedback columns,
+and only on their own rows. API calls to the backend carry
 the user's InsForge access token.
 
 ## Docker
