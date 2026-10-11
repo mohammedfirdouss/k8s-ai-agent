@@ -186,7 +186,7 @@ k8s-ai-agent/
 ### Prerequisites
 
 - Docker and Docker Compose (for the containerized setup), or
-- Python 3.12+ and Node.js 20+ (for local development)
+- Python 3.12+ and Node.js 24+ (for local development)
 
 ### Run with Docker (recommended)
 
