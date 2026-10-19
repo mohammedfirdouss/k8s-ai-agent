@@ -9,6 +9,7 @@ export function useHealth() {
     queryKey: ["health"],
     queryFn: getHealth,
     refetchInterval: 30_000,
-    retry: false,
+    // One retry so a single dropped request doesn't flag the backend offline.
+    retry: 1,
   });
 }

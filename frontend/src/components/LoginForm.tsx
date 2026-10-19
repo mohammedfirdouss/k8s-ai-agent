@@ -62,8 +62,9 @@ export default function LoginForm({ onSignedIn }: LoginFormProps) {
       password,
     });
     if (signInError) {
-      // Accounts created before verifying their email can't sign in yet.
-      if (signInError.statusCode === 403 || /verif/i.test(signInError.message ?? "")) {
+      // Accounts that haven't verified their email can't sign in yet. Other
+      // errors (wrong password, a 403 for another reason) are shown as-is.
+      if (/verif/i.test(signInError.message ?? "")) {
         await insforge!.auth.resendVerificationEmail({ email });
         askForCode(`Your email isn't verified yet. We sent a new 6-digit code to ${email}.`);
         return;

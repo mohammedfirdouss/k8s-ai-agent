@@ -21,11 +21,14 @@ export default function FeedbackPrompt({ investigationId, initial = null }: Feed
 
   async function save(next: Rating, feedbackNote: string | null) {
     if (!insforge) return false;
-    const { error: saveError } = await insforge.database
+    const { data, error: saveError } = await insforge.database
       .from("investigations")
       .update({ feedback: next, feedback_note: feedbackNote, feedback_at: new Date().toISOString() })
-      .eq("id", investigationId);
-    if (saveError) {
+      .eq("id", investigationId)
+      .select("id");
+    // Row-level security turns an update of someone else's (or a missing) row
+    // into "0 rows updated", not an error, so check a row actually changed.
+    if (saveError || !data?.length) {
       setError("Could not save your feedback.");
       return false;
     }
