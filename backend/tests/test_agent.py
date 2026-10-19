@@ -17,7 +17,7 @@ def fake_replies(monkeypatch, *replies):
     """
     calls = []
 
-    def fake_chat_messages(messages, tools=None, json_mode=False):
+    def fake_chat_messages(messages, tools=None, json_mode=False, usage=None):
         calls.append(messages[-1]["content"])
         reply = replies[len(calls) - 1]
         return reply if isinstance(reply, dict) else {"content": reply}
@@ -148,7 +148,7 @@ def test_tool_budget_is_enforced(monkeypatch):
 def test_no_tools_without_kubectl(monkeypatch):
     seen = {}
 
-    def fake(messages, tools=None, json_mode=False):
+    def fake(messages, tools=None, json_mode=False, usage=None):
         seen.update(tools=tools, json_mode=json_mode)
         return {"content": json.dumps({"incidents": [incident()]})}
 
@@ -202,3 +202,23 @@ def test_llm_client_fails_fast_on_out_of_credits(monkeypatch):
     with pytest.raises(llm_client.LLMError, match="out of credits"):
         llm_client.chat("s", "u")
     assert len(calls) == 1
+
+
+
+def test_usage_is_accumulated_across_calls(monkeypatch):
+    import httpx
+
+    from app.ai import llm_client
+
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(settings, "OPENROUTER_MODEL", "m")
+    body = {
+        "choices": [{"message": {"content": json.dumps({"incidents": [incident()]})}}],
+        "usage": {"prompt_tokens": 1000, "completion_tokens": 200, "cost": 0.0004},
+    }
+    monkeypatch.setattr(llm_client.httpx, "post", lambda *a, **k: httpx.Response(200, json=body))
+    diagnosis = agent.analyze(BROKEN)
+    assert diagnosis["usage"]["calls"] == 1
+    assert diagnosis["usage"]["prompt_tokens"] == 1000
+    assert diagnosis["usage"]["completion_tokens"] == 200
+    assert diagnosis["usage"]["cost_usd"] == 0.0004

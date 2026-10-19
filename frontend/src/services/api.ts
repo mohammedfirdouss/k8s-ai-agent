@@ -69,7 +69,7 @@ export function toErrorMessage(error: unknown): string {
       return "The backend took too long to respond. Please try again.";
     }
     if (!error.response) {
-      return "Backend unreachable — is it running on :8000?";
+      return `Backend unreachable at ${api.defaults.baseURL}.`;
     }
     if (error.response.status === 401) {
       return "Your session has expired. Sign out and sign in again.";

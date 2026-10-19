@@ -275,6 +275,10 @@ def _print_summary(results: "list[dict]") -> float:
             f"\n{len(provider_errors)} run(s) failed at the LLM provider (not a diagnosis error). "
             f"Accuracy on the {len(answered)} answered runs: {accuracy:.0%}"
         )
+    costs = [(r["diagnosis"].get("usage") or {}).get("cost_usd") for r in results]
+    known = [c for c in costs if c is not None]
+    if known:
+        print(f"LLM cost: ${sum(known):.4f} total, ${sum(known) / len(known):.5f} per diagnosis")
     mode = f"agent, up to {settings.AGENT_MAX_TOOL_CALLS} tool calls" if settings.AGENT_MAX_TOOL_CALLS else "single-shot"
     print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL}, {mode})")
     return pass_rate

@@ -5,6 +5,7 @@ comes from the environment (provided via InsForge) — never hardcoded.
 """
 
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
@@ -24,6 +25,36 @@ class LLMError(Exception):
     """Raised when the LLM cannot produce a response."""
 
 
+@dataclass
+class Usage:
+    """LLM usage accumulated across the calls of one investigation."""
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    # As reported by OpenRouter; None when the provider gives no cost.
+    cost_usd: Optional[float] = None
+    seconds: float = 0.0
+
+    def add(self, response_json: dict, seconds: float) -> None:
+        usage = response_json.get("usage") or {}
+        self.calls += 1
+        self.seconds += seconds
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
+        if usage.get("cost") is not None:
+            self.cost_usd = (self.cost_usd or 0.0) + float(usage["cost"])
+
+    def to_dict(self) -> dict:
+        return {
+            "calls": self.calls,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "cost_usd": None if self.cost_usd is None else round(self.cost_usd, 6),
+            "seconds": round(self.seconds, 2),
+        }
+
+
 def chat(system_prompt: str, user_prompt: str, json_mode: bool = True) -> str:
     """Send one single-turn chat request and return the reply text.
 
@@ -39,12 +70,16 @@ def chat(system_prompt: str, user_prompt: str, json_mode: bool = True) -> str:
 
 
 def chat_messages(
-    messages: "list[dict]", tools: "Optional[list[dict]]" = None, json_mode: bool = False
+    messages: "list[dict]",
+    tools: "Optional[list[dict]]" = None,
+    json_mode: bool = False,
+    usage: Optional[Usage] = None,
 ) -> dict:
     """Send a multi-turn chat request and return the assistant message dict.
 
     The message has `content` and, when `tools` were offered and the model
-    chose to use them, `tool_calls` (OpenAI format).
+    chose to use them, `tool_calls` (OpenAI format). Token and cost usage of
+    a successful call is added to `usage` when given.
 
     Retries transient failures (network errors, 5xx, rate limits) up to
     MAX_ATTEMPTS times. Raises LLMError when no response can be obtained.
@@ -64,6 +99,8 @@ def chat_messages(
         "messages": messages,
         # Low temperature: we want deterministic, factual troubleshooting.
         "temperature": 0.2,
+        # Ask OpenRouter to report token counts and cost.
+        "usage": {"include": True},
     }
     if tools:
         payload["tools"] = tools
@@ -73,6 +110,7 @@ def chat_messages(
 
     last_error = "unknown error"
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        started = time.monotonic()
         try:
             response = httpx.post(
                 OPENROUTER_URL,
@@ -92,7 +130,11 @@ def chat_messages(
 
         if response.status_code == 200:
             try:
-                return response.json()["choices"][0]["message"]
+                body = response.json()
+                message = body["choices"][0]["message"]
+                if usage is not None:
+                    usage.add(body, time.monotonic() - started)
+                return message
             except (KeyError, IndexError, TypeError, ValueError):
                 # OpenRouter reports some upstream provider failures as a 200
                 # with an error body and no choices; treat them as transient.

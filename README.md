@@ -1,5 +1,7 @@
 # AI Kubernetes Troubleshooting Agent
 
+[![CI](https://github.com/mohammedfirdouss/k8s-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mohammedfirdouss/k8s-ai-agent/actions/workflows/ci.yml)
+
 An AI-powered platform that investigates Kubernetes failures, analyzes logs, events, and cluster state, identifies root causes, and suggests fixes with full investigation history and a public web dashboard.
 
 ## Demo
@@ -14,12 +16,12 @@ https://github.com/user-attachments/assets/28e9d330-4219-420e-bcb6-130cb9be881c
 
 ## What It Does
 
-- **Investigates** Kubernetes failures automatically
-- **Analyzes** logs, events, and cluster state
-- **Identifies** root causes with confidence scoring
-- **Suggests** fixes (kubectl commands and YAML updates)
-- **Stores** investigation history
-- **Deploys** publicly as a real application
+- **Investigates** a cluster on demand: pods, logs, recent warning events, deployments and services
+- **Reports every independent problem** as its own incident, most severe first, with the evidence it rests on
+- **Suggests fixes** as kubectl commands, plus how to prevent the problem from coming back
+- **Scores confidence** from how direct the evidence is, and says so when the cause can't be determined
+- **Keeps a private history** for each user, with 👍/👎 feedback on every diagnosis
+- **Is measured**: an eval harness scores diagnoses against 11 recorded failure scenarios
 
 ## High-Level Architecture
 
@@ -29,14 +31,14 @@ The system is made of five layers. Evidence flows up from the cluster, gets anal
 flowchart TD
     K8S["Kubernetes Cluster<br/><i>Pods · Deployments · Services · Events · Logs</i>"]
     INV["Investigation Layer<br/><i>Collects troubleshooting evidence</i>"]
-    AI["AI Kubernetes Agent<br/><i>Reasons over evidence, finds root cause</i>"]
-    BE["InsForge Backend<br/><i>Auth · APIs · History · Realtime updates</i>"]
+    AI["AI Kubernetes Agent<br/><i>Reasons over evidence, finds every incident</i>"]
+    BE["Backend API + InsForge<br/><i>Jobs · Auth · History · Realtime</i>"]
     FE["Frontend Dashboard<br/><i>Trigger investigations, view results</i>"]
 
-    K8S -- "kubectl / Kubernetes API" --> INV
-    INV -- "Structured investigation data" --> AI
-    AI -- "Investigation result" --> BE
-    BE -- "API response" --> FE
+    K8S -- "kubectl" --> INV
+    INV -- "Structured, redacted evidence" --> AI
+    AI -- "Diagnosis" --> BE
+    BE -- "Progress + result" --> FE
 ```
 
 ## Layer Breakdown
@@ -62,51 +64,36 @@ Turns raw evidence into a diagnosis:
 
 ```mermaid
 flowchart LR
-    PB["Prompt Builder"] --> LLM["LLM Reasoning<br/><i>OpenRouter via InsForge<br/>Claude · GPT · DeepSeek</i>"]
-    LLM --> RCA["Root Cause<br/>Analyzer"]
-    RCA --> FIX["Fix Recommendation<br/>Engine"]
-    FIX --> CONF["Confidence<br/>Scoring"]
+    PB["Prompt Builder"] --> LLM["LLM Reasoning<br/><i>OpenRouter<br/>(any chat model)</i>"]
+    LLM --> VAL["Validation<br/><i>schema + coverage check</i>"]
+    VAL -- "missed a flagged problem" --> LLM
+    VAL --> DIAG["Diagnosis<br/><i>incidents, fixes,<br/>confidence</i>"]
 ```
 
 | Component | Responsibility |
 | --- | --- |
-| Prompt Builder | Converts investigation data into an LLM prompt |
-| LLM Reasoning | Understands failures via OpenRouter (Claude, GPT, DeepSeek) |
-| Root Cause Analyzer | Correlates logs + events + deployment state to detect the primary issue |
-| Fix Recommendation Engine | Suggests kubectl fixes and YAML updates |
-| Confidence Scoring | Attaches a confidence % to each diagnosis |
+| Prompt Builder | Turns the evidence into a structured prompt (secrets in logs and events are redacted first) |
+| LLM Reasoning | Correlates the evidence into incidents through OpenRouter, so any chat model works |
+| Validation | Checks the reply against a schema, and checks that every problem the inspectors flagged is covered; otherwise asks again once |
+| Agent tools *(experimental, off by default)* | Lets the model run read-only kubectl tools (`describe`, `get_yaml`, `list`, `logs`) to dig deeper |
 
-### 3. InsForge Backend
+### 3. Backend API and InsForge
+
+The FastAPI backend runs each investigation as a background job and reports progress step by step. [InsForge](https://insforge.dev) provides:
 
 | Component | Responsibility |
 | --- | --- |
-| Authentication | User login |
-| API Layer | Trigger investigations, return AI analysis |
-| Investigation History | Store past incidents and root cause reports |
-| Realtime Updates | Live progress (✓ Checking pods → ✓ Reading logs → ✓ Analyzing events → ✓ Finding root cause) |
+| Authentication | Email/password sign-in; the backend verifies the user's token on every request |
+| Investigation History | Each user's past diagnoses and feedback, protected by row-level security (users read only their own rows) |
+| Realtime | A per-user channel that refreshes the history list when a new investigation is saved |
 
 ### 4. Frontend Dashboard
 
-Lets users trigger investigations, watch live progress, and view the diagnosis, suggested fixes, and history.
-
-```text
-┌──────────────────────────────────────────┐
-│ Incident: Orders API returning 503       │
-│ Status: Investigating...                 │
-│                                          │
-│ ✓ Pods Checked                           │
-│ ✓ Events Analyzed                        │
-│ ✓ Services Inspected                     │
-│                                          │
-│ Root Cause: Service selector mismatch    │
-│ Suggested Fix: Align service selector    │
-│ with deployment pod labels               │
-└──────────────────────────────────────────┘
-```
+Lets users pick a cluster, start an investigation, and watch its progress (a page refresh resumes it). They can then read each incident with its evidence and copyable kubectl commands, rate the diagnosis, and open past investigations from their history.
 
 ### 5. Deployment
 
-The frontend and backend are deployed via **InsForge**, which generates a public URL.
+Both services ship as Docker images (`docker compose up --build`). The backend needs `kubectl` access to the target cluster through a kubeconfig.
 
 ## End-to-End Workflow
 
@@ -120,17 +107,20 @@ sequenceDiagram
     participant IF as InsForge
 
     User->>FE: Click "Investigate Cluster"
-    FE->>API: API request
-    API->>IF: Authenticate user
-    API->>INV: Start investigation
-    INV->>INV: Check pods, read logs,<br/>analyze events, inspect<br/>deployments, check networking
-    INV->>AI: Structured evidence
-    AI->>AI: Root cause analysis +<br/>suggested fix
-    AI->>IF: Save investigation history
-    IF-->>FE: Realtime progress updates
-    AI->>API: Investigation result
-    API->>FE: Diagnosis + fixes
-    FE->>User: Show diagnosis
+    FE->>API: POST /investigations (user token)
+    API->>IF: Verify token
+    API-->>FE: investigation_id (job runs in background)
+    API->>INV: Check pods, read logs,<br/>analyze events, inspect<br/>deployments, check networking
+    loop every second
+        FE->>API: GET /investigations/{id}
+        API-->>FE: Step progress
+    end
+    INV->>AI: Structured, redacted evidence
+    AI->>AI: Incidents, fixes,<br/>confidence
+    API->>IF: Save to the user's history
+    FE->>API: GET /investigations/{id}
+    API-->>FE: Diagnosis
+    FE->>User: Show incidents
 ```
 
 ## Example Investigation
@@ -150,18 +140,21 @@ flowchart TD
 
 | Category | Problems |
 | --- | --- |
-| **Pod failures** | CrashLoopBackOff · ImagePullBackOff · OOMKilled · Pending Pods |
-| **Resources** | Resource exhaustion |
-| **Deployments** | Rollout failures |
-| **Networking** | Service selector mismatch · DNS resolution problems · General networking issues |
-| **Health checks** | Readiness/Liveness probe failures |
+| **Pod failures** | CrashLoopBackOff · ImagePullBackOff · OOMKilled · CreateContainerConfigError (e.g. missing ConfigMap) · stuck init containers · restart loops |
+| **Scheduling** | Pending pods (e.g. insufficient CPU/memory) |
+| **Deployments** | Unavailable replicas · failed rollout conditions |
+| **Networking** | Services with no ready endpoints (selector mismatch, unready pods) · cluster DNS down |
+| **Health checks** | Readiness and liveness probe failures |
+
+Each row is backed by an eval scenario in [`k8s-test-scenarios/`](k8s-test-scenarios). The scenarios also include a crash with no logs, which tests that confidence drops when the cause can't be known, and a healthy cluster, which tests for false alarms. With `deepseek/deepseek-chat`, every run that got an answer from the model was correct (single-shot, 3 runs per scenario). See [backend/README.md](backend/README.md#evals) to run the evals.
 
 ## Tech Stack
 
 - **Backend:** FastAPI, Python 3.12, Uvicorn, Pydantic, Loguru, HTTPX
 - **Frontend:** Next.js 15, TypeScript, Tailwind CSS, Axios, React Query
-- **AI:** OpenRouter API (Claude, GPT, DeepSeek) via InsForge
-- **Platform:** InsForge (auth, database, realtime, deployment)
+- **AI:** OpenRouter (any chat model, e.g. Claude, GPT, DeepSeek)
+- **Platform:** InsForge (auth, Postgres with row-level security, realtime)
+- **Quality:** pytest, recorded-fixture evals, GitHub Actions CI
 - **Cluster access:** kubectl / Kubernetes API
 - **Infrastructure:** Docker, Docker Compose
 
@@ -193,7 +186,7 @@ k8s-ai-agent/
 ### Prerequisites
 
 - Docker and Docker Compose (for the containerized setup), or
-- Python 3.12+ and Node.js 20+ (for local development)
+- Python 3.12+ and Node.js 24+ (for local development)
 
 ### Run with Docker (recommended)
 
