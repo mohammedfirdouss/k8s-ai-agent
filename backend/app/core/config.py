@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Which LLM provider diagnoses: "anthropic" (Claude, official SDK) or
     # "openrouter" (any model OpenRouter routes to).
-    LLM_PROVIDER: str = "openrouter"
+    LLM_PROVIDER: str = "anthropic"
 
     # Claude (LLM_PROVIDER=anthropic).
     ANTHROPIC_API_KEY: str = ""
