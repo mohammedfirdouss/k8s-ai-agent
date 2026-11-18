@@ -118,6 +118,9 @@ def start_conversation(
     `response_schema` is the JSON schema the final answer must follow; Claude
     enforces it with structured outputs, OpenRouter gets JSON mode instead.
     """
+    problem = configuration_problem()
+    if problem:
+        raise LLMError(problem)
     if settings.LLM_PROVIDER == "anthropic":
         from app.ai.anthropic_client import AnthropicConversation
 
@@ -138,7 +141,10 @@ def configuration_problem() -> Optional[str]:
     """Why the configured provider can't run, or None when it can."""
     if settings.LLM_PROVIDER == "anthropic":
         if not settings.ANTHROPIC_API_KEY:
-            return "ANTHROPIC_API_KEY is not set. Add it to backend/.env to enable AI analysis."
+            return (
+                "ANTHROPIC_API_KEY is not set. Add it to backend/.env to enable AI analysis "
+                "(or set LLM_PROVIDER=openrouter to use OpenRouter)."
+            )
         return None
     if settings.LLM_PROVIDER == "openrouter":
         if not settings.OPENROUTER_API_KEY:

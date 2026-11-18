@@ -12,7 +12,7 @@ fixtures from that run.
 
     python -m evals.run --live --context kind-k8s-ai-test --record
 
-Run from the backend/ directory so backend/.env (OpenRouter settings) loads.
+Run from the backend/ directory so backend/.env (LLM provider settings) loads.
 Every investigation scans the whole cluster, so use a dedicated test
 cluster with nothing else broken in it.
 """

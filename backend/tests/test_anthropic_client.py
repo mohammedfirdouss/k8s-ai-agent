@@ -111,6 +111,8 @@ def test_refusal_raises(fake_sdk):
     (api_error(anthropic.AuthenticationError, 401, "invalid x-api-key"), "rejected the API key"),
     (api_error(anthropic.BadRequestError, 400, "messages: bad shape"), "rejected the request"),
     (api_error(anthropic.InternalServerError, 500, "overloaded"), "HTTP 500"),
+    (api_error(anthropic.NotFoundError, 404, "model: claude-typo"), "doesn't know the model 'claude-haiku-5-5'"),
+    (api_error(anthropic.PermissionDeniedError, 403, "not allowed"), "isn't allowed to use this model"),
 ])
 def test_errors_become_readable_llm_errors(fake_sdk, error, message):
     _, queue = fake_sdk

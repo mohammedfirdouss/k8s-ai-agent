@@ -159,7 +159,9 @@ SILENT_CRASH = Expectation(
     max_confidence=70,
     # The manifest's command is `sh -c "sleep 2; exit 1"`: knowable only by
     # reading the pod spec, which the standard evidence does not include.
-    cause_found=[["exit 1", "status 1", "code 1"], ["command", "sh -c", "sleep 2"]],
+    # Require the spec itself — exit code 1 alone is already in the standard
+    # evidence, and "command" fits any guess.
+    cause_found=[["sleep 2"], ["exit 1"]],
 )
 
 SCENARIOS: "list[Scenario]" = [

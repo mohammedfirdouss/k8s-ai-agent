@@ -3,7 +3,7 @@ import json
 import pytest
 
 from app.ai import agent
-from app.ai.llm_client import ToolCall, Turn
+from app.ai.llm_client import ToolCall, Turn, Usage
 
 BROKEN = {"pods": {"healthy": False}, "logs": {}, "events": {}, "deployments": {}, "network": {}}
 
@@ -262,3 +262,28 @@ def test_reply_schema_matches_incident_model():
     assert set(incident_schema["required"]) == set(Incident.model_fields)
     assert agent.REPLY_SCHEMA["additionalProperties"] is False
     assert incident_schema["additionalProperties"] is False
+
+
+
+@pytest.mark.parametrize("provider, key_setting", [("anthropic", "ANTHROPIC_API_KEY"), ("openrouter", "OPENROUTER_API_KEY")])
+def test_missing_key_reports_ai_disabled_instead_of_crashing(monkeypatch, provider, key_setting):
+    monkeypatch.setattr(settings, "LLM_PROVIDER", provider)
+    monkeypatch.setattr(settings, key_setting, "")
+    diagnosis = agent.analyze(BROKEN)
+    assert f"{key_setting} is not set" in diagnosis["error"]
+    assert diagnosis["incidents"] == []
+
+
+@pytest.mark.parametrize("tools, json_mode", [(None, True), ([{"type": "function"}], False)])
+def test_openrouter_uses_json_mode_only_without_tools(monkeypatch, tools, json_mode):
+    from app.ai import llm_client
+
+    seen = {}
+
+    def fake_chat_messages(messages, tools=None, json_mode=False, usage=None):
+        seen["json_mode"] = json_mode
+        return {"content": "{}"}
+
+    monkeypatch.setattr(llm_client, "chat_messages", fake_chat_messages)
+    llm_client.OpenRouterConversation("sys", "user", tools, Usage()).send()
+    assert seen["json_mode"] is json_mode

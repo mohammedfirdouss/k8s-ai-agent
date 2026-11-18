@@ -137,3 +137,10 @@ def test_silent_crash_calibration_cap_lifts_only_when_cause_is_found():
     assert not scored("legacy-batch exits with an unknown error and no logs", 90).passed
     # Cause actually found (agent read the pod spec): high confidence is earned.
     assert scored('legacy-batch crashes: its command `sh -c "sleep 2; exit 1"` exits with status 1', 88).passed
+    # Confident guesses that only echo the exit code or say "command" are still overconfident.
+    for guess in (
+        "The container command fails and exits with code 1",
+        "The container is OOM-killed (exit code 137) because the command uses more memory",
+        "A missing env var makes the startup command exit with status 1",
+    ):
+        assert not scored(guess, 95).passed, guess

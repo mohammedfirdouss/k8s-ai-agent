@@ -114,8 +114,17 @@ class AnthropicConversation:
         started = time.monotonic()
         try:
             response = self._client.messages.create(**params)
-        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
+        except anthropic.AuthenticationError:
             raise LLMError("The Claude API rejected the API key. Check ANTHROPIC_API_KEY in backend/.env.")
+        except anthropic.PermissionDeniedError:
+            raise LLMError(
+                "The Claude API key isn't allowed to use this model or feature. "
+                "Check the key's workspace permissions and ANTHROPIC_MODEL."
+            )
+        except anthropic.NotFoundError:
+            raise LLMError(
+                f"The Claude API doesn't know the model '{self._model}'. Check ANTHROPIC_MODEL in backend/.env."
+            )
         except anthropic.BadRequestError as exc:
             if "credit balance" in str(exc.message).lower():
                 raise LLMError(
