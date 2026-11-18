@@ -5,3 +5,4 @@ pydantic-settings==2.15.0
 loguru==0.7.3
 httpx==0.28.1
 python-dotenv==1.2.4
+anthropic==1.17.0

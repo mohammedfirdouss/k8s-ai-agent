@@ -12,7 +12,7 @@ from typing import Optional
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
-from app.ai.llm_client import LLMError, Usage, chat_messages
+from app.ai.llm_client import LLMError, Usage, start_conversation
 from app.ai.prompt_builder import SYSTEM_PROMPT, TOOLS_PROMPT, build_user_prompt
 from app.ai.tools import TOOL_SCHEMAS, run_tool
 from app.core.config import settings
@@ -32,6 +32,44 @@ class _LLMReply(BaseModel):
 
     summary: Optional[str] = None
     incidents: "list[Incident]"
+
+
+_NULLABLE_STRING = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+_STRING_LIST = {"type": "array", "items": {"type": "string"}}
+_INCIDENT_PROPERTIES = {
+    "workload": _NULLABLE_STRING,
+    "namespace": _NULLABLE_STRING,
+    "severity": {"type": "string", "enum": list(SEVERITY_ORDER)},
+    "root_cause": {"type": "string"},
+    "explanation": _NULLABLE_STRING,
+    "fix": _NULLABLE_STRING,
+    "kubectl_commands": _STRING_LIST,
+    "prevention": _NULLABLE_STRING,
+    "confidence": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+    "confidence_reasoning": _NULLABLE_STRING,
+    "evidence": _STRING_LIST,
+}
+
+# _LLMReply as a JSON schema for structured outputs (every object closed,
+# every property required, optional values nullable). Kept in sync with
+# `Incident` by tests/test_agent.py.
+REPLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": _NULLABLE_STRING,
+        "incidents": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": _INCIDENT_PROPERTIES,
+                "required": list(_INCIDENT_PROPERTIES),
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "incidents"],
+    "additionalProperties": False,
+}
 
 
 def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
@@ -54,10 +92,6 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
     max_tool_calls = settings.AGENT_MAX_TOOL_CALLS if kube is not None else 0
     tools = TOOL_SCHEMAS if max_tool_calls > 0 else None
     system = SYSTEM_PROMPT + (TOOLS_PROMPT.format(max_calls=max_tool_calls) if tools else "")
-    messages: "list[dict]" = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": build_user_prompt(evidence)},
-    ]
     flagged = _flagged_problems(evidence)
     commands_run: "list[str]" = []
     usage = Usage()
@@ -67,35 +101,38 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
     # Each turn the model either calls tools (results are appended and it
     # continues) or gives its final JSON answer, which is validated and
     # checked against the problems the inspectors flagged.
+    try:
+        conversation = start_conversation(
+            system, build_user_prompt(evidence), tools, REPLY_SCHEMA, usage
+        )
+    except LLMError as exc:
+        logger.error("AI analysis unavailable: {}", exc)
+        return Diagnosis(error=str(exc)).model_dump()
+
     for _turn in range(max_tool_calls + MAX_FEEDBACK_ROUNDS + 2):
         try:
-            # JSON mode and tool calling don't mix on every provider.
-            message = chat_messages(messages, tools=tools, json_mode=tools is None, usage=usage)
+            turn = conversation.send()
         except LLMError as exc:
             if best is not None:
                 break  # keep the incomplete-but-valid earlier answer
             logger.error("AI analysis unavailable: {}", exc)
             return Diagnosis(error=str(exc), usage=usage.to_dict()).model_dump()
 
-        tool_calls = message.get("tool_calls")
-        if tool_calls:
-            messages.append(
-                {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
-            )
-            for call in tool_calls:
+        if turn.tool_calls:
+            results = []
+            for call in turn.tool_calls:
                 if len(commands_run) >= max_tool_calls:
                     output = "Tool budget exhausted. Respond now with the final JSON object."
                 else:
-                    function = call.get("function", {})
-                    output, command = run_tool(kube, function.get("name", ""), function.get("arguments", ""))
+                    output, command = run_tool(kube, call.name, call.arguments)
                     if command:
                         commands_run.append("kubectl " + " ".join(command))
                         logger.info("Agent ran: {}", commands_run[-1])
-                messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": output})
+                results.append((call.id, output))
+            conversation.add_tool_results(results)
             continue
 
-        content = message.get("content") or ""
-        parsed, reply_error = _parse_reply(content)
+        parsed, reply_error = _parse_reply(turn.text)
         if parsed is None:
             logger.warning("LLM reply was not a valid diagnosis: {}", reply_error)
             feedback = (
@@ -117,7 +154,7 @@ def analyze(evidence: dict, kube: Optional[Kubectl] = None) -> dict:
         if feedback_rounds >= MAX_FEEDBACK_ROUNDS:
             break
         feedback_rounds += 1
-        messages += [{"role": "assistant", "content": content}, {"role": "user", "content": feedback}]
+        conversation.add_user_message(feedback)
 
     if best is None:
         return Diagnosis(
