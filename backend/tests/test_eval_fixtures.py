@@ -61,9 +61,6 @@ def test_multi_evidence_has_all_four_failures():
     assert any(i["service"] == "orders-service" for i in evidence["network"]["issues"])
 
 
-# --- scoring ---------------------------------------------------------------
-
-
 def test_matches_requires_every_group():
     assert matches("Missing DATABASE_URL", [["database_url"], ["missing", "unset"]])
     assert not matches("DATABASE_URL is fine", [["database_url"], ["missing", "unset"]])
