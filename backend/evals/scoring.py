@@ -96,7 +96,8 @@ def _score_expectation(expectation: Expectation, incidents: "list[dict]") -> Exp
             cause=matches(cause_text, expectation.cause),
             fix=matches(fix_text, expectation.fix),
             calibrated=expectation.max_confidence is None
-            or (confidence is not None and confidence <= expectation.max_confidence),
+            or (confidence is not None and confidence <= expectation.max_confidence)
+            or (expectation.cause_found is not None and matches(cause_text, expectation.cause_found)),
         )
         if candidate.passed or (candidate.cause + candidate.fix) > (best.cause + best.fix) or not best.named_workload:
             best = candidate
