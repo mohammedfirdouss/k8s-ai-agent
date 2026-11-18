@@ -108,7 +108,7 @@ export default function HistoryTable({
                   className={`grid w-full ${COLUMNS} text-left text-[12.5px] transition-colors duration-100
                     hover:bg-hover ${expanded ? "bg-hover" : ""}`}
                 >
-                  <span className="truncate border-r border-[var(--grid-line)] px-3 py-2 text-ink-2 tabular-nums">
+                  <span className="truncate border-r border-[var(--grid-line)] px-3 py-2 text-ink-2 tabular-nums" suppressHydrationWarning>
                     {new Date(row.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
                   </span>
                   <span className={`truncate border-r border-[var(--grid-line)] px-3 py-2 font-mono text-[11.5px] text-ink-2 ${WIDE_ONLY}`}>

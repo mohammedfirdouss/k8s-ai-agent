@@ -32,6 +32,7 @@ class ProgressTracker:
     def __init__(self, owner_id: str):
         self.owner_id = owner_id
         self.running = True
+        self.started_at = time.monotonic()
         self.finished_at: Optional[float] = None
         self.result: Optional[dict] = None
         self._lock = threading.Lock()
@@ -55,10 +56,12 @@ class ProgressTracker:
     def snapshot(self) -> dict:
         """Current progress (and result once finished), safe to return from the API."""
         with self._lock:
+            end = self.finished_at if self.finished_at is not None else time.monotonic()
             return {
                 "running": self.running,
                 "steps": [dict(s) for s in self._steps],
                 "result": self.result,
+                "elapsed_seconds": round(end - self.started_at, 1),
             }
 
     def _set_status(self, name: str, status: str, detail: Optional[str] = None) -> None:

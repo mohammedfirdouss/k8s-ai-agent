@@ -7,14 +7,14 @@ type Source = { badge: string; label: string; tone: string };
 // The model returns evidence as plain strings; tag them by what they quote.
 function sourceOf(line: string): Source {
   const text = line.toLowerCase();
-  if (/selector|labels?\b|endpoints?/.test(text)) return { badge: "SVC", label: "Service", tone: "bg-accent" };
+  if (/selector|labels?\b|endpoints?/.test(text)) return { badge: "SVC", label: "Service", tone: "bg-accent-strong" };
   if (/probe|back-off|backoff|failed to|failedscheduling|insufficient|unhealthy|pulling image|not found/.test(text)) {
-    return { badge: "EVT", label: "Event", tone: "bg-orange" };
+    return { badge: "EVT", label: "Event", tone: "bg-orange-ink" };
   }
   if (/exit(ed)? (code|with)|exitcode|oomkilled|restart|limits?:|requests?:|status/.test(text)) {
-    return { badge: "POD", label: "Pod status", tone: "bg-red" };
+    return { badge: "POD", label: "Pod status", tone: "bg-red-ink" };
   }
-  if (/error|fatal|exception|traceback|panic|warn|\[\w+\]/.test(text)) return { badge: "LOG", label: "Log", tone: "bg-green" };
+  if (/error|fatal|exception|traceback|panic|warn|\[\w+\]/.test(text)) return { badge: "LOG", label: "Log", tone: "bg-green-ink" };
   return { badge: "INF", label: "Observation", tone: "bg-ink-3" };
 }
 

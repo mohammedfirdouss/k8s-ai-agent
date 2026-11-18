@@ -76,7 +76,7 @@ function SavedDiagnosis({ id }: { id: string }) {
     return <p className="text-[13px] text-ink-2">Loading diagnosis...</p>;
   }
   if (state.status === "error") {
-    return <p className="text-[13px] text-red">Could not load this diagnosis.</p>;
+    return <p className="text-[13px] text-red-ink">Could not load this diagnosis.</p>;
   }
   if (!state.diagnosis) {
     return <p className="text-[13px] text-ink-2">No details were saved for this investigation.</p>;

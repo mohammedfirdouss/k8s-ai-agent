@@ -8,9 +8,9 @@ An AI-powered platform that investigates Kubernetes failures, analyzes logs, eve
 
 https://github.com/user-attachments/assets/28e9d330-4219-420e-bcb6-130cb9be881c
 
-![Each step of the investigation ticks off live while the agent collects evidence and the AI reasons over it](docs/screenshots/progress.jpg)
+![Each step of the investigation ticks off live with what it found, while the AI reasons over the evidence](docs/screenshots/progress.jpg)
 
-![The diagnosis: root cause, explanation, suggested fix, kubectl commands and a confidence score, for a test cluster with three broken apps](docs/screenshots/diagnosis.jpg)
+![Each problem gets its own card: root cause, suggested fix, copyable kubectl commands, the evidence it rests on, and a confidence meter](docs/screenshots/diagnosis.jpg)
 
 ![Past investigations are saved with their root cause and confidence](docs/screenshots/history.jpg)
 

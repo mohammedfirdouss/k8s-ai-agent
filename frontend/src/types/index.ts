@@ -83,6 +83,8 @@ export interface InvestigationStatus {
   running: boolean;
   steps: ProgressStep[];
   result: InvestigateResponse | null;
+  // Seconds since the investigation started, from the backend.
+  elapsed_seconds?: number | null;
 }
 
 // Row shape of the InsForge `investigations` table (columns the UI reads).

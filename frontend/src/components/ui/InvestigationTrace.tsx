@@ -5,22 +5,8 @@
 // shimmering header while running, a spinner on the active step, checks with
 // each step's finding once done, and a collapsible trace.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ProgressStep } from "@/types";
-
-function useElapsedSeconds(running: boolean): number | null {
-  const startedAt = useRef<number | null>(null);
-  const [elapsed, setElapsed] = useState<number | null>(null);
-  useEffect(() => {
-    if (!running) return;
-    startedAt.current ??= Date.now();
-    const tick = () => setElapsed(Math.round((Date.now() - startedAt.current!) / 1000));
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return elapsed;
-}
 
 function StepIcon({ status }: { status: ProgressStep["status"] }) {
   if (status === "running") {
@@ -46,12 +32,15 @@ function StepIcon({ status }: { status: ProgressStep["status"] }) {
 export default function InvestigationTrace({
   steps,
   running,
+  elapsedSeconds,
 }: {
   steps: ProgressStep[];
   running: boolean;
+  /** From the backend, so it survives a page refresh. */
+  elapsedSeconds: number | null;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const elapsed = useElapsedSeconds(running);
+  const elapsed = elapsedSeconds === null ? null : Math.round(elapsedSeconds);
   const doneCount = steps.filter((s) => s.status === "done").length;
 
   const traceRef = useRef<HTMLOListElement>(null);
@@ -66,9 +55,14 @@ export default function InvestigationTrace({
 
   return (
     <section className="rounded-card bg-surface px-4 py-3 shadow-card" aria-label="Investigation progress">
+      {/* Announce state changes only; the visible header also ticks every second. */}
+      <span className="sr-only" role="status">
+        {running ? "Investigation running" : "Investigation complete"}
+      </span>
       <button
         type="button"
         aria-expanded={expanded}
+        aria-label={`${header}, ${doneCount} of ${steps.length} steps done. ${expanded ? "Hide" : "Show"} steps`}
         onClick={() => setExpanded((open) => !open)}
         className="-mx-1.5 flex w-full items-center gap-2 rounded-control px-1.5 py-1 text-left
           transition-colors duration-100 hover:bg-hover-2"
@@ -76,7 +70,7 @@ export default function InvestigationTrace({
         <svg width="16" height="16" viewBox="0 0 24 24" fill={running ? "var(--ink-2)" : "var(--ink-3)"} aria-hidden>
           <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
         </svg>
-        <span role="status" className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1" aria-hidden>
           {running ? (
             <span
               className="bg-clip-text text-[13px] font-medium whitespace-nowrap text-transparent"
@@ -124,7 +118,7 @@ export default function InvestigationTrace({
               {steps.map((step) => (
                 <li
                   key={step.name}
-                  className="flex min-h-7 items-center gap-2 rounded-[6px] px-1.5 py-0.5"
+                  className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0 rounded-[6px] px-1.5 py-0.5"
                   style={{ animation: "fade-up 320ms var(--ease-out-strong) both" }}
                 >
                   <span className="flex w-3.5 shrink-0 justify-center">
@@ -138,7 +132,7 @@ export default function InvestigationTrace({
                     {step.name}
                   </span>
                   {step.detail && (
-                    <span className="min-w-0 truncate text-[11.5px] text-ink-2" title={step.detail}>
+                    <span className="min-w-0 basis-full pl-[22px] text-[11.5px] text-ink-2 sm:basis-auto sm:truncate sm:pl-0" title={step.detail}>
                       {step.detail}
                     </span>
                   )}

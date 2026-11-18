@@ -34,7 +34,7 @@ export default function DiagnosisCard({ diagnosis }: DiagnosisCardProps) {
         <div className="flex items-start justify-between gap-4">
           <h2 className="text-[13px] font-semibold text-ink">No critical Kubernetes issues detected.</h2>
           {diagnosis.confidence !== null && (
-            <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[11.5px] font-medium text-green shadow-hairline tabular-nums">
+            <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[11.5px] font-medium text-green-ink shadow-hairline tabular-nums">
               {Math.round(diagnosis.confidence)}% confidence
             </span>
           )}

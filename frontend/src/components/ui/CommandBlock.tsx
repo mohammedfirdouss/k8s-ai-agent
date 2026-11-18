@@ -18,8 +18,8 @@ function highlight(line: string): ReactNode[] {
     const token = match[0];
     if (index > last) nodes.push(<span key={key++}>{line.slice(last, index)}</span>);
     let style: React.CSSProperties;
-    if (token.startsWith("<")) style = { color: "var(--red)" }; // placeholder to fill in
-    else if (/^["']/.test(token)) style = { color: "var(--orange)" }; // quoted value
+    if (token.startsWith("<")) style = { color: "var(--red-ink)" }; // placeholder to fill in
+    else if (/^["']/.test(token)) style = { color: "var(--orange-ink)" }; // quoted value
     else if (token.trimStart().startsWith("-")) style = { color: "var(--ink-3)" }; // flag
     else style = { color: "var(--accent-ink)", fontWeight: 500 }; // the command itself
     nodes.push(<span key={key++} style={style}>{token}</span>);
@@ -77,7 +77,7 @@ export default function CommandBlock({ title = "kubectl", lines }: { title?: str
             type="button"
             onClick={() => copy(all)}
             className={`-mr-1 ml-auto flex h-6 items-center gap-1 rounded-[6px] px-1.5 text-[12px] font-medium
-              transition-colors duration-100 hover:bg-hover ${copied === all ? "text-green" : "text-ink-3 hover:text-ink"}`}
+              transition-colors duration-100 hover:bg-hover ${copied === all ? "text-green-ink" : "text-ink-3 hover:text-ink"}`}
           >
             <CopyIcon done={copied === all} />
             {copied === all ? "Copied" : "Copy all"}
@@ -96,7 +96,7 @@ export default function CommandBlock({ title = "kubectl", lines }: { title?: str
               onClick={() => copy(line)}
               aria-label={`Copy command ${i + 1}`}
               className={`mr-2 flex h-6 items-center rounded-[6px] px-1.5 transition-colors duration-100 hover:bg-hover
-                ${copied === line ? "text-green" : "text-ink-3 hover:text-ink"}`}
+                ${copied === line ? "text-green-ink" : "text-ink-3 hover:text-ink"}`}
             >
               <CopyIcon done={copied === line} />
             </button>

@@ -12,12 +12,12 @@
   --surface: oklch(1 0 0);
   --inset: oklch(0.979 0.002 247.839);
   --hover: oklch(0.97 0.002 247.839);
-  --hover-2: oklch(0.933 0.003 247.86);
+  --hover-2: oklch(0.95 0.003 247.86); /* ink-3 on hover 4.56:1 */
 
   /* ink ramp */
   --ink: oklch(0.247 0.006 258.361);
   --ink-2: oklch(0.506 0.01 264.477);
-  --ink-3: oklch(0.6 0.009 264.505);
+  --ink-3: oklch(0.53 0.01 264.5); /* 5.3:1 on white */
 
   /* borders */
   --line: oklch(0.946 0.003 264.542);
@@ -29,14 +29,19 @@
   --accent: oklch(0.626 0.205 254.947);
   --accent-ink: oklch(0.556 0.187 255.617);
   --accent-tint: oklch(0.96 0.019 252.878);
+  --accent-strong: oklch(0.52 0.19 256); /* filled buttons: white text 5.6:1 */
 
-  /* semantic */
+  /* semantic — the plain hues are for graphics (meters, dots, checks: >=3:1);
+   * text on white or on a tint uses the -ink variants (>=4.5:1) */
   --green: oklch(0.603 0.155 150.883);
   --green-tint: oklch(0.958 0.017 159.118);
-  --orange: oklch(0.689 0.179 49.902);
+  --orange: oklch(0.65 0.17 50);
   --orange-tint: oklch(0.964 0.021 67.581);
   --red: oklch(0.621 0.192 23.042);
   --red-tint: oklch(0.956 0.017 17.462);
+  --red-ink: oklch(0.5 0.17 25);
+  --orange-ink: oklch(0.52 0.13 50);
+  --green-ink: oklch(0.48 0.12 155);
 
   /* layered shadows (stand-ins for shadow-plugin's xs/sm/md/lg stacks) */
   --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.05);
@@ -61,12 +66,16 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
+  --color-accent-strong: var(--accent-strong);
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-orange: var(--orange);
   --color-orange-tint: var(--orange-tint);
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
+  --color-red-ink: var(--red-ink);
+  --color-orange-ink: var(--orange-ink);
+  --color-green-ink: var(--green-ink);
 
   --shadow-hairline: 0 0 0 1px var(--line);
   --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
@@ -89,16 +98,14 @@ body {
 
 /* status tags: one hue per state, mixed toward the surface */
 .status-tag-done {
-  --tag-base: oklch(0.652 0.131 162.865);
+  color: var(--green-ink);
+  background: var(--green-tint);
+  border: 1px solid color-mix(in srgb, var(--green) 34%, var(--surface));
 }
 .status-tag-failed {
-  --tag-base: oklch(0.65 0.17 23);
-}
-.status-tag-done,
-.status-tag-failed {
-  color: color-mix(in srgb, var(--tag-base) 80%, var(--ink));
-  background: color-mix(in srgb, var(--tag-base) 16%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--tag-base) 34%, var(--surface));
+  color: var(--red-ink);
+  background: var(--red-tint);
+  border: 1px solid color-mix(in srgb, var(--red) 34%, var(--surface));
 }
 
 @keyframes shimmer-text {

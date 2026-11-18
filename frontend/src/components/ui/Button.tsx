@@ -8,8 +8,8 @@ export type ButtonVariant = "primary" | "secondary" | "accent" | "success" | "qu
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-ink text-white hover:opacity-90",
   secondary: "bg-surface text-ink shadow-btn hover:bg-inset aria-expanded:bg-hover",
-  accent: "bg-accent text-white hover:bg-accent-ink",
-  success: "bg-green text-white",
+  accent: "bg-accent-strong text-white hover:opacity-90",
+  success: "bg-green-ink text-white",
   quiet: "text-ink-2 hover:bg-hover hover:text-ink",
 };
 

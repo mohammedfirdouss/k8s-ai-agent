@@ -115,5 +115,7 @@ class InvestigationStatus(BaseModel):
     investigation_id: UUID
     running: bool
     steps: "list[ProgressStep]"
+    # Seconds since the investigation started (frozen once it finishes).
+    elapsed_seconds: Optional[float] = None
     # Set once the investigation has finished.
     result: Optional[InvestigateResponse] = None

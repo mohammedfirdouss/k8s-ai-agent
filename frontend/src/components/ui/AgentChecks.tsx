@@ -22,6 +22,12 @@ const ICONS = {
   ),
 };
 
+function plural(kind: string): string {
+  if (kind.endsWith("s")) return kind === "ingress" ? "ingresses" : kind; // e.g. endpoints
+  if (kind.endsWith("y")) return `${kind.slice(0, -1)}ies`; // networkpolicy -> networkpolicies
+  return `${kind}s`;
+}
+
 // Commands come from the backend's fixed tool menu (app/ai/tools.py).
 function describe(command: string): Check {
   const args = command.replace(/^kubectl\s+/, "").split(/\s+/);
@@ -38,7 +44,7 @@ function describe(command: string): Check {
   }
   if (verb === "describe") return { label: "Describe", target: where(`${first}/${second}`), icon: "read", command };
   if (verb === "get" && flag("-o") === "yaml") return { label: "Read YAML", target: where(`${first}/${second}`), icon: "read", command };
-  if (verb === "get") return { label: "List", target: where(`${first}s`), icon: "list", command };
+  if (verb === "get") return { label: "List", target: where(plural(first)), icon: "list", command };
   return { label: "Run", target: command, icon: "list", command };
 }
 

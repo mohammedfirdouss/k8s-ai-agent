@@ -86,7 +86,8 @@ def step_summary(section: str, result: dict) -> str:
     if section == "events":
         found = result.get("total_findings", 0)
         resolved = result.get("resolved_events_omitted", 0)
-        text = _plural(found, "warning") if found else "No active warnings"
+        capped = "+" if found >= inspectors.MAX_EVENTS else ""
+        text = f"{found}{capped} warning{'' if found == 1 else 's'}" if found else "No active warnings"
         return text + (f" ({resolved} resolved, ignored)" if resolved else "")
     if section == "deployments":
         bad = len(result.get("unhealthy_deployments", []))

@@ -22,7 +22,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
   const refreshHistory = useCallback(() => setHistoryRefreshKey((k) => k + 1), []);
-  const { start, running, steps, result, error } = useInvestigate({
+  const { start, running, steps, elapsedSeconds, result, error } = useInvestigate({
     onComplete: refreshHistory,
   });
 
@@ -112,13 +112,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
           </p>
         )}
 
-        {running && (
-          <p className="text-sm font-medium text-slate-900">
-            Investigating Kubernetes Cluster...
-          </p>
-        )}
-
-        {steps.length > 0 && <InvestigationTrace steps={steps} running={running} />}
+        {steps.length > 0 && <InvestigationTrace steps={steps} running={running} elapsedSeconds={elapsedSeconds} />}
 
         {clusterError && (
           <section className="rounded-lg border border-red-200 bg-red-50 p-5">

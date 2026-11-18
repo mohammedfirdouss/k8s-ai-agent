@@ -12,17 +12,18 @@ import CommandBlock from "@/components/ui/CommandBlock";
 import EvidenceCards from "@/components/ui/EvidenceCards";
 
 const SEVERITY: Record<Severity, { cls: string; ring: string }> = {
-  critical: { cls: "bg-red-tint text-red", ring: "0 0 0 1px color-mix(in oklch, var(--red) 28%, transparent)" },
-  high: { cls: "bg-orange-tint text-orange", ring: "0 0 0 1px color-mix(in oklch, var(--orange) 28%, transparent)" },
-  medium: { cls: "bg-accent-tint text-accent-ink", ring: "0 0 0 1px color-mix(in oklch, var(--accent) 28%, transparent)" },
+  critical: { cls: "bg-red-tint text-red-ink", ring: "0 0 0 1px color-mix(in oklch, var(--red) 28%, transparent)" },
+  high: { cls: "bg-orange-tint text-orange-ink", ring: "0 0 0 1px color-mix(in oklch, var(--orange) 28%, transparent)" },
+  medium: { cls: "bg-accent-tint text-accent-strong", ring: "0 0 0 1px color-mix(in oklch, var(--accent) 28%, transparent)" },
   low: { cls: "bg-field text-ink-2", ring: "var(--shadow-hairline)" },
 };
 
 function confidenceLevel(confidence: number | null) {
   if (confidence === null) return { signal: 0, tone: "var(--ink-3)", label: "Confidence unknown" };
-  const pct = `${Math.round(confidence)}%`;
-  if (confidence >= 80) return { signal: 3, tone: "var(--green)", label: `High confidence · ${pct}` };
-  if (confidence >= 50) return { signal: 2, tone: "var(--orange)", label: `Medium confidence · ${pct}` };
+  const rounded = Math.round(confidence);
+  const pct = `${rounded}%`;
+  if (rounded >= 80) return { signal: 3, tone: "var(--green)", label: `High confidence · ${pct}` };
+  if (rounded >= 50) return { signal: 2, tone: "var(--orange)", label: `Medium confidence · ${pct}` };
   return { signal: 1, tone: "var(--ink-3)", label: `Low confidence · ${pct}, cause unclear` };
 }
 
@@ -72,10 +73,10 @@ export default function IncidentCard({ incident, index }: { incident: Incident; 
 
   return (
     <article
-      className="w-full overflow-hidden rounded-card bg-surface shadow-card"
+      className="flex w-full flex-col overflow-hidden rounded-card bg-surface shadow-card"
       style={{ animation: `fade-up 400ms var(--ease-out-strong) ${index * 80}ms both` }}
     >
-      <div className="p-4">
+      <div className="order-1 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={`inline-flex items-center rounded-full px-1.5 text-[11.5px] font-medium capitalize ${severity.cls}`}
@@ -89,21 +90,38 @@ export default function IncidentCard({ incident, index }: { incident: Incident; 
             </span>
           )}
         </div>
-        <h3 className="mt-2.5 text-[14px] leading-snug font-medium text-ink">{incident.root_cause}</h3>
+        <h3 className="mt-2.5 text-[14px] leading-snug font-medium [overflow-wrap:anywhere] text-ink">{incident.root_cause}</h3>
         {incident.explanation && (
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{incident.explanation}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{incident.explanation}</p>
         )}
         {incident.fix && (
-          <p className="mt-2.5 text-[13px] leading-relaxed text-ink-2">
+          <p className="mt-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">
             <span className="font-medium text-ink">Suggested fix: </span>
             {incident.fix}
           </p>
         )}
       </div>
 
-      {/* details drawer: a distinct section of the card */}
+      <div className="order-3 flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5">
+        <span className="flex items-center gap-2">
+          <Meter signal={level.signal} tone={level.tone} />
+          <span className="text-[12.5px] font-medium text-ink-2">{level.label}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          {fixCommand && (
+            <Button variant={copied ? "success" : "accent"} onClick={copyFix} title={fixCommand}>
+              {copied ? "Copied" : level.signal === 1 ? "Copy next step" : "Copy fix"}
+            </Button>
+          )}
+          <Button variant="secondary" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+            {open ? "Hide details" : "Details"}
+          </Button>
+        </span>
+      </div>
+      {/* details drawer: shown above the footer (order-2) but after it in the
+          DOM, so Tab goes Details -> drawer contents. */}
       <div
-        className="grid transition-[grid-template-rows,opacity] duration-300"
+        className="order-2 grid transition-[grid-template-rows,opacity] duration-300"
         style={{
           gridTemplateRows: open ? "1fr" : "0fr",
           opacity: open ? 1 : 0,
@@ -133,22 +151,6 @@ export default function IncidentCard({ incident, index }: { incident: Incident; 
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5">
-        <span className="flex items-center gap-2">
-          <Meter signal={level.signal} tone={level.tone} />
-          <span className="text-[12.5px] font-medium text-ink-2">{level.label}</span>
-        </span>
-        <span className="flex items-center gap-2">
-          <Button variant="secondary" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-            {open ? "Hide details" : "Details"}
-          </Button>
-          {fixCommand && (
-            <Button variant={copied ? "success" : "accent"} onClick={copyFix} title={fixCommand}>
-              {copied ? "Copied" : "Copy fix"}
-            </Button>
-          )}
-        </span>
-      </div>
     </article>
   );
 }
