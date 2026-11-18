@@ -142,5 +142,6 @@ def test_silent_crash_calibration_cap_lifts_only_when_cause_is_found():
         "The container command fails and exits with code 1",
         "The container is OOM-killed (exit code 137) because the command uses more memory",
         "A missing env var makes the startup command exit with status 1",
+        "The job does a sleep 20 loop and is OOM-killed with exit 137",
     ):
         assert not scored(guess, 95).passed, guess
