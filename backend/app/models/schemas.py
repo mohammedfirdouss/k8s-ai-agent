@@ -84,6 +84,8 @@ class ProgressStep(BaseModel):
     name: str
     # pending | running | done
     status: str
+    # One-line finding once done, e.g. "3 unhealthy of 42".
+    detail: Optional[str] = None
 
 
 class ClustersResponse(BaseModel):
@@ -113,5 +115,7 @@ class InvestigationStatus(BaseModel):
     investigation_id: UUID
     running: bool
     steps: "list[ProgressStep]"
+    # Seconds since the investigation started (frozen once it finishes).
+    elapsed_seconds: Optional[float] = None
     # Set once the investigation has finished.
     result: Optional[InvestigateResponse] = None

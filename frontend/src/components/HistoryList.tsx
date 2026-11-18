@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import FeedbackPrompt from "@/components/FeedbackPrompt";
+import HistoryTable from "@/components/ui/HistoryTable";
 import { insforge, insforgeConfigured } from "@/services/insforge";
 import type { Diagnosis, InvestigationRow } from "@/types";
 
@@ -72,13 +73,13 @@ function SavedDiagnosis({ id }: { id: string }) {
   }, [id]);
 
   if (state.status === "loading") {
-    return <p className="text-sm text-slate-500">Loading diagnosis...</p>;
+    return <p className="text-[13px] text-ink-2">Loading diagnosis...</p>;
   }
   if (state.status === "error") {
-    return <p className="text-sm text-red-700">Could not load this diagnosis.</p>;
+    return <p className="text-[13px] text-red-ink">Could not load this diagnosis.</p>;
   }
   if (!state.diagnosis) {
-    return <p className="text-sm text-slate-500">No details were saved for this investigation.</p>;
+    return <p className="text-[13px] text-ink-2">No details were saved for this investigation.</p>;
   }
   return (
     <div className="space-y-4">
@@ -136,76 +137,21 @@ export default function HistoryList({ userId, refreshKey }: HistoryListProps) {
   if (!insforgeConfigured) return null;
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-slate-900">
-        Recent Investigations
+    <section aria-labelledby="history-heading">
+      <h2 id="history-heading" className="mb-1 px-0.5 text-[14px] font-semibold text-ink">
+        Recent investigations
       </h2>
       {rows.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">
-          {!loaded
-            ? "Loading history..."
-            : loadError
-              ? "Could not load history."
-              : "No investigations yet."}
+        <p className="rounded-card bg-surface px-4 py-3 text-[13px] text-ink-2 shadow-card">
+          {!loaded ? "Loading history..." : loadError ? "Could not load history." : "No investigations yet."}
         </p>
       ) : (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-4 font-semibold">Date</th>
-                <th className="py-2 pr-4 font-semibold">Cluster</th>
-                <th className="py-2 pr-4 font-semibold">Root Cause</th>
-                <th className="py-2 pr-4 font-semibold">Confidence</th>
-                <th className="py-2 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <Fragment key={row.id}>
-                <tr
-                  onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
-                  aria-expanded={expandedId === row.id}
-                  className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
-                >
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
-                    {new Date(row.created_at).toLocaleString()}
-                  </td>
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
-                    {row.cluster_context ?? "default"}
-                  </td>
-                  <td className="max-w-md truncate py-2 pr-4 text-slate-800">
-                    {row.root_cause ?? "—"}
-                  </td>
-                  <td className="py-2 pr-4 text-slate-600">
-                    {row.confidence !== null && row.confidence !== undefined
-                      ? `${Math.round(Number(row.confidence))}%`
-                      : "—"}
-                  </td>
-                  <td className="py-2">
-                    <span
-                      className={
-                        row.status === "completed"
-                          ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
-                          : "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
-                      }
-                    >
-                      {row.status ?? "unknown"}
-                    </span>
-                  </td>
-                </tr>
-                {expandedId === row.id && (
-                  <tr className="border-b border-slate-100">
-                    <td colSpan={5} className="bg-slate-50 p-4">
-                      <SavedDiagnosis id={row.id} />
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <HistoryTable
+          rows={rows}
+          expandedId={expandedId}
+          onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+          renderExpanded={(id) => <SavedDiagnosis id={id} />}
+        />
       )}
     </section>
   );

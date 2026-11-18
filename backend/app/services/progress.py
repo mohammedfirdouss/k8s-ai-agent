@@ -32,6 +32,7 @@ class ProgressTracker:
     def __init__(self, owner_id: str):
         self.owner_id = owner_id
         self.running = True
+        self.started_at = time.monotonic()
         self.finished_at: Optional[float] = None
         self.result: Optional[dict] = None
         self._lock = threading.Lock()
@@ -41,9 +42,9 @@ class ProgressTracker:
         """Mark one step as currently running."""
         self._set_status(name, "running")
 
-    def finish_step(self, name: str) -> None:
-        """Mark one step as done."""
-        self._set_status(name, "done")
+    def finish_step(self, name: str, detail: Optional[str] = None) -> None:
+        """Mark one step as done, with an optional one-line finding."""
+        self._set_status(name, "done", detail)
 
     def finish(self, result: Optional[dict] = None) -> None:
         """Mark the whole investigation as finished, with its result."""
@@ -55,17 +56,21 @@ class ProgressTracker:
     def snapshot(self) -> dict:
         """Current progress (and result once finished), safe to return from the API."""
         with self._lock:
+            end = self.finished_at if self.finished_at is not None else time.monotonic()
             return {
                 "running": self.running,
                 "steps": [dict(s) for s in self._steps],
                 "result": self.result,
+                "elapsed_seconds": round(end - self.started_at, 1),
             }
 
-    def _set_status(self, name: str, status: str) -> None:
+    def _set_status(self, name: str, status: str, detail: Optional[str] = None) -> None:
         with self._lock:
             for step in self._steps:
                 if step["name"] == name:
                     step["status"] = status
+                    if detail is not None:
+                        step["detail"] = detail
                     return
 
 

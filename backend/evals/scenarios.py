@@ -29,8 +29,12 @@ class Expectation:
     # Must appear in fix + kubectl_commands.
     fix: Groups
     # When the evidence cannot establish the cause, a calibrated diagnosis
-    # must not claim more confidence than this.
+    # must not claim more confidence than this...
     max_confidence: "float | None" = None
+    # ...unless it found the actual cause anyway (e.g. agent tools read the
+    # pod spec): these groups, matched in root_cause + explanation, lift the
+    # cap. Without them a confident answer is still overconfident.
+    cause_found: "Groups | None" = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +157,12 @@ SILENT_CRASH = Expectation(
     cause=[["exit", "crash", "terminat"]],
     fix=[["log", "command", "entrypoint", "debug", "investigat", "inspect"]],
     max_confidence=70,
+    # The manifest's command is `sh -c "sleep 2; exit 1"`: knowable only by
+    # reading the pod spec, which the standard evidence does not include.
+    # Require the spec itself, verbatim — exit code 1 alone is already in the
+    # standard evidence, "command" fits any guess, and separate "sleep 2" /
+    # "exit 1" checks would also match "sleep 20" / "exit 137".
+    cause_found=[["sleep 2; exit 1"]],
 )
 
 SCENARIOS: "list[Scenario]" = [

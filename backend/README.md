@@ -1,7 +1,8 @@
 # AI Kubernetes Troubleshooting Agent — Backend
 
 FastAPI backend that inspects a cluster (pods, logs, events, deployments,
-networking) with kubectl and asks an LLM (via OpenRouter) for a root cause,
+networking) with kubectl and asks an LLM (Claude by default, or any model via
+OpenRouter; see `LLM_PROVIDER` in `.env.example`) for a root cause,
 fix, and confidence score.
 
 ## Run locally

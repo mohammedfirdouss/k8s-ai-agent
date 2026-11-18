@@ -21,3 +21,13 @@ def test_duplicate_id_rejected():
     progress.create("inv-dup", owner_id="u")
     with pytest.raises(progress.InvestigationIdInUse):
         progress.create("inv-dup", owner_id="u")
+
+
+
+def test_snapshot_reports_elapsed_time_frozen_at_finish(monkeypatch):
+    clock = iter([100.0, 103.5, 110.0, 120.0])
+    monkeypatch.setattr(progress.time, "monotonic", lambda: next(clock))
+    tracker = progress.ProgressTracker("u")      # started at 100.0
+    assert tracker.snapshot()["elapsed_seconds"] == 3.5   # now 103.5
+    tracker.finish({"ok": True})                 # finished at 110.0
+    assert tracker.snapshot()["elapsed_seconds"] == 10.0  # frozen, not 20.0

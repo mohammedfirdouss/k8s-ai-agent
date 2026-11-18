@@ -73,6 +73,8 @@ export interface ClustersResponse {
 export interface ProgressStep {
   name: string;
   status: "pending" | "running" | "done";
+  // One-line finding once the step is done, e.g. "3 unhealthy of 42".
+  detail?: string | null;
 }
 
 // GET /investigations/{id}: live progress, then the result once finished.
@@ -81,6 +83,8 @@ export interface InvestigationStatus {
   running: boolean;
   steps: ProgressStep[];
   result: InvestigateResponse | null;
+  // Seconds since the investigation started, from the backend.
+  elapsed_seconds?: number | null;
 }
 
 // Row shape of the InsForge `investigations` table (columns the UI reads).

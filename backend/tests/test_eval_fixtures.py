@@ -61,9 +61,6 @@ def test_multi_evidence_has_all_four_failures():
     assert any(i["service"] == "orders-service" for i in evidence["network"]["issues"])
 
 
-# --- scoring ---------------------------------------------------------------
-
-
 def test_matches_requires_every_group():
     assert matches("Missing DATABASE_URL", [["database_url"], ["missing", "unset"]])
     assert not matches("DATABASE_URL is fine", [["database_url"], ["missing", "unset"]])
@@ -126,3 +123,36 @@ def test_healthy_cluster_needs_no_llm():
 
     evidence = evidence_for("healthy")
     assert _cluster_looks_healthy(evidence), (evidence["pods"], evidence["events"]["findings"])
+
+
+def test_silent_crash_calibration_cap_lifts_only_when_cause_is_found():
+    silent = next(s for s in SCENARIOS if s.id == "silent-crash")
+    base = {"workload": "Deployment/legacy-batch", "fix": "Check the logs and the container command"}
+
+    def scored(root_cause, confidence):
+        return score(silent, {"incidents": [{**base, "root_cause": root_cause, "confidence": confidence}]})
+
+    # Cause unknown: low confidence passes, high confidence is overconfident.
+    assert scored("legacy-batch exits with an unknown error and no logs", 35).passed
+    assert not scored("legacy-batch exits with an unknown error and no logs", 90).passed
+    # Cause actually found (agent read the pod spec): high confidence is earned.
+    assert scored('legacy-batch crashes: its command `sh -c "sleep 2; exit 1"` exits with status 1', 88).passed
+    # Confident guesses that only echo the exit code or say "command" are still overconfident.
+    for guess in (
+        "The container command fails and exits with code 1",
+        "The container is OOM-killed (exit code 137) because the command uses more memory",
+        "A missing env var makes the startup command exit with status 1",
+        "The job does a sleep 20 loop and is OOM-killed with exit 137",
+    ):
+        assert not scored(guess, 95).passed, guess
+
+
+
+def test_progress_steps_report_their_findings():
+    tracker = ProgressTracker("test")
+    run_investigation(ReplayKubectl(fixture_path("multi")), tracker)
+    details = {step["name"]: step.get("detail") for step in tracker.snapshot()["steps"]}
+    assert details["Checking Pods"].startswith("3 unhealthy of ")
+    assert details["Reading Logs"] == "From 3 pods"
+    assert details["Checking Networking"] == "1 service without endpoints"
+    assert details["AI Reasoning"] is None  # set by the job, not evidence collection

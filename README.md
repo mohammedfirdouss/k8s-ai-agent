@@ -8,9 +8,9 @@ An AI-powered platform that investigates Kubernetes failures, analyzes logs, eve
 
 https://github.com/user-attachments/assets/28e9d330-4219-420e-bcb6-130cb9be881c
 
-![Each step of the investigation ticks off live while the agent collects evidence and the AI reasons over it](docs/screenshots/progress.jpg)
+![Each step of the investigation ticks off live with what it found, while the AI reasons over the evidence](docs/screenshots/progress.jpg)
 
-![The diagnosis: root cause, explanation, suggested fix, kubectl commands and a confidence score, for a test cluster with three broken apps](docs/screenshots/diagnosis.jpg)
+![Each problem gets its own card: root cause, suggested fix, copyable kubectl commands, the evidence it rests on, and a confidence meter](docs/screenshots/diagnosis.jpg)
 
 ![Past investigations are saved with their root cause and confidence](docs/screenshots/history.jpg)
 
@@ -64,7 +64,7 @@ Turns raw evidence into a diagnosis:
 
 ```mermaid
 flowchart LR
-    PB["Prompt Builder"] --> LLM["LLM Reasoning<br/><i>OpenRouter<br/>(any chat model)</i>"]
+    PB["Prompt Builder"] --> LLM["LLM Reasoning<br/><i>Claude (default)<br/>or OpenRouter</i>"]
     LLM --> VAL["Validation<br/><i>schema + coverage check</i>"]
     VAL -- "missed a flagged problem" --> LLM
     VAL --> DIAG["Diagnosis<br/><i>incidents, fixes,<br/>confidence</i>"]
@@ -73,7 +73,7 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | Prompt Builder | Turns the evidence into a structured prompt (secrets in logs and events are redacted first) |
-| LLM Reasoning | Correlates the evidence into incidents through OpenRouter, so any chat model works |
+| LLM Reasoning | Correlates the evidence into incidents. Defaults to Claude Haiku 5.5 through the Anthropic SDK, with the answer held to a JSON schema (structured outputs); OpenRouter is an alternative for any other chat model |
 | Validation | Checks the reply against a schema, and checks that every problem the inspectors flagged is covered; otherwise asks again once |
 | Agent tools *(experimental, off by default)* | Lets the model run read-only kubectl tools (`describe`, `get_yaml`, `list`, `logs`) to dig deeper |
 
@@ -146,13 +146,13 @@ flowchart TD
 | **Networking** | Services with no ready endpoints (selector mismatch, unready pods) · cluster DNS down |
 | **Health checks** | Readiness and liveness probe failures |
 
-Each row is backed by an eval scenario in [`k8s-test-scenarios/`](k8s-test-scenarios). The scenarios also include a crash with no logs, which tests that confidence drops when the cause can't be known, and a healthy cluster, which tests for false alarms. With `deepseek/deepseek-chat`, every run that got an answer from the model was correct (single-shot, 3 runs per scenario). See [backend/README.md](backend/README.md#evals) to run the evals.
+Each row is backed by an eval scenario in [`k8s-test-scenarios/`](k8s-test-scenarios). The scenarios also include a crash with no logs, which tests that confidence drops when the cause can't be known, and a healthy cluster, which tests for false alarms. With Claude Haiku 5.5, all 33 runs passed (single-shot, 3 runs per scenario), at about $0.001 and 4–12 seconds per diagnosis. See [backend/README.md](backend/README.md#evals) to run the evals.
 
 ## Tech Stack
 
 - **Backend:** FastAPI, Python 3.12, Uvicorn, Pydantic, Loguru, HTTPX
 - **Frontend:** Next.js 15, TypeScript, Tailwind CSS, Axios, React Query
-- **AI:** OpenRouter (any chat model, e.g. Claude, GPT, DeepSeek)
+- **AI:** Claude via the Anthropic Python SDK (default: Claude Haiku 5.5), or any model through OpenRouter
 - **Platform:** InsForge (auth, Postgres with row-level security, realtime)
 - **Quality:** pytest, recorded-fixture evals, GitHub Actions CI
 - **Cluster access:** kubectl / Kubernetes API
@@ -222,12 +222,13 @@ npm run dev
 Copy `backend/.env.example` to `backend/.env` and fill in the values when you are ready to enable AI analysis and cluster access:
 
 ```env
-OPENROUTER_API_KEY=   # LLM access via OpenRouter
-OPENROUTER_MODEL=     # e.g. a Claude, GPT, or DeepSeek model id
-KUBECONFIG_PATH=      # path to the kubeconfig of the target cluster
+LLM_PROVIDER=anthropic          # or "openrouter"
+ANTHROPIC_API_KEY=              # from https://platform.claude.com (API Keys)
+ANTHROPIC_MODEL=claude-haiku-5-5
+KUBECONFIG_PATH=                # path to the kubeconfig of the target cluster
 ```
 
-The backend `.env` is optional — without an OpenRouter key the app still gathers evidence and reports that AI analysis is disabled.
+For OpenRouter instead, set `LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. The backend `.env` is optional: without an AI key the app still gathers evidence and reports that AI analysis is disabled.
 
 For login and investigation history, create an [InsForge](https://insforge.dev) project, apply the SQL in `migrations/` (`npx -y @insforge/cli db migrations up --all`), and set:
 

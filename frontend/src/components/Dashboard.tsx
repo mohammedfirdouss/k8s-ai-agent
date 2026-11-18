@@ -8,7 +8,7 @@ import ClusterSelector from "@/components/ClusterSelector";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import FeedbackPrompt from "@/components/FeedbackPrompt";
 import HistoryList from "@/components/HistoryList";
-import InvestigationProgress from "@/components/InvestigationProgress";
+import InvestigationTrace from "@/components/ui/InvestigationTrace";
 import StatusBadge from "@/components/StatusBadge";
 import { useHealth } from "@/hooks/useHealth";
 import type { SignedInUser } from "@/types";
@@ -22,7 +22,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
   const refreshHistory = useCallback(() => setHistoryRefreshKey((k) => k + 1), []);
-  const { start, running, steps, result, error } = useInvestigate({
+  const { start, running, steps, elapsedSeconds, result, error } = useInvestigate({
     onComplete: refreshHistory,
   });
 
@@ -41,8 +41,8 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+    <main className="min-h-screen bg-page">
+      <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold tracking-tight text-slate-900">
@@ -112,13 +112,7 @@ export default function Dashboard({ user, onSignedOut }: DashboardProps) {
           </p>
         )}
 
-        {running && (
-          <p className="text-sm font-medium text-slate-900">
-            Investigating Kubernetes Cluster...
-          </p>
-        )}
-
-        {steps.length > 0 && <InvestigationProgress steps={steps} />}
+        {steps.length > 0 && <InvestigationTrace steps={steps} running={running} elapsedSeconds={elapsedSeconds} />}
 
         {clusterError && (
           <section className="rounded-lg border border-red-200 bg-red-50 p-5">

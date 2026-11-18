@@ -81,6 +81,7 @@ export function useInvestigate(options?: { onComplete?: () => void }) {
     start: (context?: string | null) => startMutation.mutate(context),
     running,
     steps: status?.steps ?? [],
+    elapsedSeconds: status?.elapsed_seconds ?? null,
     result: status?.running === false ? status.result : null,
     error: startMutation.error ?? statusQuery.error,
   };
