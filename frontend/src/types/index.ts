@@ -73,6 +73,8 @@ export interface ClustersResponse {
 export interface ProgressStep {
   name: string;
   status: "pending" | "running" | "done";
+  // One-line finding once the step is done, e.g. "3 unhealthy of 42".
+  detail?: string | null;
 }
 
 // GET /investigations/{id}: live progress, then the result once finished.

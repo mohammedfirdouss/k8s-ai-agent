@@ -54,7 +54,7 @@ export default function InvestigationTrace({
   const elapsed = useElapsedSeconds(running);
   const doneCount = steps.filter((s) => s.status === "done").length;
 
-  const traceRef = useRef<HTMLDivElement>(null);
+  const traceRef = useRef<HTMLOListElement>(null);
   const [lineHeight, setLineHeight] = useState(0);
   useLayoutEffect(() => {
     if (traceRef.current) setLineHeight(traceRef.current.offsetHeight);
