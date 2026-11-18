@@ -123,3 +123,17 @@ def test_healthy_cluster_needs_no_llm():
 
     evidence = evidence_for("healthy")
     assert _cluster_looks_healthy(evidence), (evidence["pods"], evidence["events"]["findings"])
+
+
+def test_silent_crash_calibration_cap_lifts_only_when_cause_is_found():
+    silent = next(s for s in SCENARIOS if s.id == "silent-crash")
+    base = {"workload": "Deployment/legacy-batch", "fix": "Check the logs and the container command"}
+
+    def scored(root_cause, confidence):
+        return score(silent, {"incidents": [{**base, "root_cause": root_cause, "confidence": confidence}]})
+
+    # Cause unknown: low confidence passes, high confidence is overconfident.
+    assert scored("legacy-batch exits with an unknown error and no logs", 35).passed
+    assert not scored("legacy-batch exits with an unknown error and no logs", 90).passed
+    # Cause actually found (agent read the pod spec): high confidence is earned.
+    assert scored('legacy-batch crashes: its command `sh -c "sleep 2; exit 1"` exits with status 1', 88).passed
