@@ -1,12 +1,19 @@
-"""OpenRouter LLM client.
+"""LLM client: one conversation interface over two providers.
 
-A thin wrapper around the OpenRouter chat-completions API. The API key
-comes from the environment (provided via InsForge) — never hardcoded.
+The agent loop talks to a `Conversation`: send a turn, get back text and/or
+tool calls, add tool results or a follow-up message, repeat.
+`start_conversation()` picks the provider from LLM_PROVIDER:
+
+- "openrouter": the OpenRouter chat-completions API (any model it routes to)
+- "anthropic": Claude through the official Anthropic SDK (see
+  `anthropic_client.py`)
+
+API keys come from the environment / backend/.env — never hardcoded.
 """
 
 import time
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Protocol
 
 import httpx
 from loguru import logger
@@ -26,24 +33,54 @@ class LLMError(Exception):
 
 
 @dataclass
+class ToolCall:
+    """One tool call the model asked for. `arguments` is a JSON string."""
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass
+class Turn:
+    """One model reply: final text, or tool calls to run first."""
+
+    text: str = ""
+    tool_calls: "list[ToolCall]" = field(default_factory=list)
+
+
+@dataclass
 class Usage:
     """LLM usage accumulated across the calls of one investigation."""
 
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    # As reported by OpenRouter; None when the provider gives no cost.
+    # None when the provider gives no cost (and it can't be computed).
     cost_usd: Optional[float] = None
     seconds: float = 0.0
 
-    def add(self, response_json: dict, seconds: float) -> None:
-        usage = response_json.get("usage") or {}
+    def record(
+        self, prompt_tokens: int, completion_tokens: int, cost_usd: Optional[float], seconds: float
+    ) -> None:
+        """Add one successful call."""
         self.calls += 1
         self.seconds += seconds
-        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
-        self.completion_tokens += int(usage.get("completion_tokens") or 0)
-        if usage.get("cost") is not None:
-            self.cost_usd = (self.cost_usd or 0.0) + float(usage["cost"])
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        if cost_usd is not None:
+            self.cost_usd = (self.cost_usd or 0.0) + cost_usd
+
+    def add(self, response_json: dict, seconds: float) -> None:
+        """Add one OpenRouter call from its response body."""
+        usage = response_json.get("usage") or {}
+        cost = usage.get("cost")
+        self.record(
+            int(usage.get("prompt_tokens") or 0),
+            int(usage.get("completion_tokens") or 0),
+            None if cost is None else float(cost),
+            seconds,
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +90,106 @@ class Usage:
             "cost_usd": None if self.cost_usd is None else round(self.cost_usd, 6),
             "seconds": round(self.seconds, 2),
         }
+
+
+class Conversation(Protocol):
+    """A multi-turn exchange with the model, in the provider's own format."""
+
+    def send(self) -> Turn:
+        """Get the model's next turn (and record it in the history). Raises LLMError."""
+
+    def add_tool_results(self, results: "list[tuple[str, str]]") -> None:
+        """Answer the last turn's tool calls: (tool call id, output) pairs."""
+
+    def add_user_message(self, text: str) -> None:
+        """Add a follow-up message (e.g. feedback on an invalid answer)."""
+
+
+def start_conversation(
+    system: str,
+    user_prompt: str,
+    tools: "Optional[list[dict]]",
+    response_schema: Optional[dict],
+    usage: Usage,
+) -> Conversation:
+    """Begin a conversation with the configured provider.
+
+    `tools` are OpenAI-style function schemas (`app.ai.tools.TOOL_SCHEMAS`).
+    `response_schema` is the JSON schema the final answer must follow; Claude
+    enforces it with structured outputs, OpenRouter gets JSON mode instead.
+    """
+    if settings.LLM_PROVIDER == "anthropic":
+        from app.ai.anthropic_client import AnthropicConversation
+
+        return AnthropicConversation(system, user_prompt, tools, response_schema, usage)
+    if settings.LLM_PROVIDER == "openrouter":
+        return OpenRouterConversation(system, user_prompt, tools, usage)
+    raise LLMError(f"Unknown LLM_PROVIDER '{settings.LLM_PROVIDER}'. Use 'anthropic' or 'openrouter'.")
+
+
+def model_label() -> str:
+    """Provider and model in use, for logs and eval reports."""
+    if settings.LLM_PROVIDER == "anthropic":
+        return f"anthropic/{settings.ANTHROPIC_MODEL}"
+    return f"openrouter/{settings.OPENROUTER_MODEL}"
+
+
+def configuration_problem() -> Optional[str]:
+    """Why the configured provider can't run, or None when it can."""
+    if settings.LLM_PROVIDER == "anthropic":
+        if not settings.ANTHROPIC_API_KEY:
+            return "ANTHROPIC_API_KEY is not set. Add it to backend/.env to enable AI analysis."
+        return None
+    if settings.LLM_PROVIDER == "openrouter":
+        if not settings.OPENROUTER_API_KEY:
+            return "OPENROUTER_API_KEY is not set. Add it to backend/.env to enable AI analysis."
+        if not settings.OPENROUTER_MODEL:
+            return (
+                "OPENROUTER_MODEL is not set. Add a model id (e.g. 'deepseek/deepseek-chat') "
+                "to backend/.env."
+            )
+        return None
+    return f"Unknown LLM_PROVIDER '{settings.LLM_PROVIDER}'. Use 'anthropic' or 'openrouter'."
+
+
+class OpenRouterConversation:
+    """Conversation over the OpenRouter chat-completions API (OpenAI format)."""
+
+    def __init__(self, system: str, user_prompt: str, tools: "Optional[list[dict]]", usage: Usage):
+        self._messages: "list[dict]" = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ]
+        self._tools = tools
+        self._usage = usage
+
+    def send(self) -> Turn:
+        # JSON mode and tool calling don't mix on every provider.
+        message = chat_messages(
+            self._messages, tools=self._tools, json_mode=self._tools is None, usage=self._usage
+        )
+        content = message.get("content") or ""
+        raw_calls = message.get("tool_calls") or []
+        if raw_calls:
+            self._messages.append({"role": "assistant", "content": content, "tool_calls": raw_calls})
+        else:
+            self._messages.append({"role": "assistant", "content": content})
+        calls = [
+            ToolCall(
+                id=call.get("id", ""),
+                name=call.get("function", {}).get("name", ""),
+                arguments=call.get("function", {}).get("arguments", ""),
+            )
+            for call in raw_calls
+        ]
+        return Turn(text=content, tool_calls=calls)
+
+    def add_tool_results(self, results: "list[tuple[str, str]]") -> None:
+        for call_id, output in results:
+            self._messages.append({"role": "tool", "tool_call_id": call_id, "content": output})
+
+    def add_user_message(self, text: str) -> None:
+        self._messages.append({"role": "user", "content": text})
 
 
 def chat(system_prompt: str, user_prompt: str, json_mode: bool = True) -> str:
@@ -90,7 +227,7 @@ def chat_messages(
         )
     if not settings.OPENROUTER_MODEL:
         raise LLMError(
-            "OPENROUTER_MODEL is not set. Add a model id (e.g. 'anthropic/claude-sonnet-4.5') "
+            "OPENROUTER_MODEL is not set. Add a model id (e.g. 'deepseek/deepseek-chat') "
             "to backend/.env."
         )
 

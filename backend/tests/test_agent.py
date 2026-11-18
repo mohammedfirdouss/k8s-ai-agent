@@ -1,7 +1,9 @@
-import pytest
 import json
 
+import pytest
+
 from app.ai import agent
+from app.ai.llm_client import ToolCall, Turn
 
 BROKEN = {"pods": {"healthy": False}, "logs": {}, "events": {}, "deployments": {}, "network": {}}
 
@@ -10,19 +12,48 @@ def incident(**overrides):
     return {"workload": "Deployment/a", "severity": "high", "root_cause": "a is broken", "confidence": 80, **overrides}
 
 
-def fake_replies(monkeypatch, *replies):
-    """Script the model's replies. Strings are final answers; dicts are raw messages.
+class FakeConversation:
+    """Scripted stand-in for an llm_client Conversation.
 
-    Returns the list of last-message contents the model was sent per call.
+    Replies are final-answer strings, or OpenAI-style message dicts with
+    `tool_calls` (see `tool_call()`). `calls` records, per send(), the latest
+    text the model was given: the user prompt, a feedback message, or the
+    joined tool outputs.
     """
+
+    def __init__(self, replies, user_prompt, calls):
+        self._replies = list(replies)
+        self._latest = user_prompt
+        self.calls = calls
+
+    def send(self):
+        self.calls.append(self._latest)
+        reply = self._replies[len(self.calls) - 1]
+        if isinstance(reply, str):
+            return Turn(text=reply)
+        return Turn(
+            text=reply.get("content") or "",
+            tool_calls=[
+                ToolCall(id=c["id"], name=c["function"]["name"], arguments=c["function"]["arguments"])
+                for c in reply.get("tool_calls") or []
+            ],
+        )
+
+    def add_tool_results(self, results):
+        self._latest = "\n".join(output for _, output in results)
+
+    def add_user_message(self, text):
+        self._latest = text
+
+
+def fake_replies(monkeypatch, *replies):
+    """Script the model's replies; returns what the model was sent per call."""
     calls = []
-
-    def fake_chat_messages(messages, tools=None, json_mode=False, usage=None):
-        calls.append(messages[-1]["content"])
-        reply = replies[len(calls) - 1]
-        return reply if isinstance(reply, dict) else {"content": reply}
-
-    monkeypatch.setattr(agent, "chat_messages", fake_chat_messages)
+    monkeypatch.setattr(
+        agent,
+        "start_conversation",
+        lambda system, user_prompt, tools, schema, usage: FakeConversation(replies, user_prompt, calls),
+    )
     return calls
 
 
@@ -93,8 +124,6 @@ def test_keeps_more_complete_answer_when_retry_is_worse(monkeypatch):
     assert agent.analyze(evidence)["incidents"][0]["workload"] == "Service/orders"
 
 
-# --- tool use ----------------------------------------------------------------
-
 from app.ai import tools
 from app.core.config import settings
 from app.kubernetes.kubectl import KubectlResult
@@ -148,13 +177,13 @@ def test_tool_budget_is_enforced(monkeypatch):
 def test_no_tools_without_kubectl(monkeypatch):
     seen = {}
 
-    def fake(messages, tools=None, json_mode=False, usage=None):
-        seen.update(tools=tools, json_mode=json_mode)
-        return {"content": json.dumps({"incidents": [incident()]})}
+    def fake(system, user_prompt, tools, schema, usage):
+        seen.update(tools=tools, schema=schema)
+        return FakeConversation([json.dumps({"incidents": [incident()]})], user_prompt, [])
 
-    monkeypatch.setattr(agent, "chat_messages", fake)
+    monkeypatch.setattr(agent, "start_conversation", fake)
     agent.analyze(BROKEN)
-    assert seen == {"tools": None, "json_mode": True}
+    assert seen == {"tools": None, "schema": agent.REPLY_SCHEMA}
 
 
 def test_tool_arguments_cannot_inject_flags_or_read_secrets():
@@ -204,12 +233,12 @@ def test_llm_client_fails_fast_on_out_of_credits(monkeypatch):
     assert len(calls) == 1
 
 
-
 def test_usage_is_accumulated_across_calls(monkeypatch):
     import httpx
 
     from app.ai import llm_client
 
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "openrouter")
     monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "k")
     monkeypatch.setattr(settings, "OPENROUTER_MODEL", "m")
     body = {
@@ -222,3 +251,14 @@ def test_usage_is_accumulated_across_calls(monkeypatch):
     assert diagnosis["usage"]["prompt_tokens"] == 1000
     assert diagnosis["usage"]["completion_tokens"] == 200
     assert diagnosis["usage"]["cost_usd"] == 0.0004
+
+
+def test_reply_schema_matches_incident_model():
+    """Structured outputs must cover exactly the fields Incident accepts."""
+    from app.models.schemas import Incident
+
+    incident_schema = agent.REPLY_SCHEMA["properties"]["incidents"]["items"]
+    assert set(incident_schema["properties"]) == set(Incident.model_fields)
+    assert set(incident_schema["required"]) == set(Incident.model_fields)
+    assert agent.REPLY_SCHEMA["additionalProperties"] is False
+    assert incident_schema["additionalProperties"] is False

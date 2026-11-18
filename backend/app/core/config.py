@@ -10,7 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """All configuration for the service, loaded from the environment."""
 
-    # AI provider (OpenRouter).
+    # Which LLM provider diagnoses: "anthropic" (Claude, official SDK) or
+    # "openrouter" (any model OpenRouter routes to).
+    LLM_PROVIDER: str = "openrouter"
+
+    # Claude (LLM_PROVIDER=anthropic).
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-haiku-5-5"
+    # low | medium | high | xhigh | max — thinking depth and token spend.
+    ANTHROPIC_EFFORT: str = "medium"
+
+    # OpenRouter (LLM_PROVIDER=openrouter).
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = ""
 

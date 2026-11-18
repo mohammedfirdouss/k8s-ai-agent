@@ -28,6 +28,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.ai.agent import analyze
+from app.ai.llm_client import configuration_problem, model_label
 from app.ai.tools import prefetch_commands
 from app.core.config import settings
 from app.kubernetes.kubectl import Kubectl
@@ -48,8 +49,9 @@ def main() -> int:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "WARNING")
 
-    if not args.no_llm and not (settings.OPENROUTER_API_KEY and settings.OPENROUTER_MODEL):
-        print("OPENROUTER_API_KEY and OPENROUTER_MODEL must be set (backend/.env), or pass --no-llm.")
+    problem = None if args.no_llm else configuration_problem()
+    if problem:
+        print(f"{problem} Or pass --no-llm.")
         return 2
 
     selected = scenario_defs.get(args.scenario)
@@ -104,9 +106,6 @@ def _parse_args() -> argparse.Namespace:
     if args.record and not args.live:
         parser.error("--record requires --live")
     return args
-
-
-# --- evidence collection ----------------------------------------------------
 
 
 def _collect_replay(scenario: Scenario) -> "tuple[dict, Kubectl] | None":
@@ -204,9 +203,6 @@ def _run_or_die(kube: Kubectl, args: "list[str]") -> None:
         raise SystemExit(f"kubectl {' '.join(args)} failed: {result.error}")
 
 
-# --- reporting ----------------------------------------------------------------
-
-
 def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: float, diagnosis: dict) -> None:
     label = f"  run {attempt}/{repeat}" if repeat > 1 else " "
     verdict = "PASS" if result.passed else "FAIL"
@@ -226,7 +222,10 @@ def _print_attempt(result: ScenarioScore, attempt: int, repeat: int, latency: fl
 
 
 def _is_provider_error(error: "str | None") -> bool:
-    return bool(error) and error.startswith(("LLM request failed", "OPENROUTER_"))
+    return bool(error) and error.startswith((
+        "LLM request failed", "OPENROUTER_", "The AI provider",  # OpenRouter
+        "The Claude API", "Could not reach the Claude API", "ANTHROPIC_",  # Claude
+    ))
 
 
 # kubectl verbs that change the cluster, i.e. actually apply a fix.
@@ -280,7 +279,7 @@ def _print_summary(results: "list[dict]") -> float:
     if known:
         print(f"LLM cost: ${sum(known):.4f} total, ${sum(known) / len(known):.5f} per diagnosis")
     mode = f"agent, up to {settings.AGENT_MAX_TOOL_CALLS} tool calls" if settings.AGENT_MAX_TOOL_CALLS else "single-shot"
-    print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {settings.OPENROUTER_MODEL}, {mode})")
+    print(f"\nOverall: {pass_rate:.0%} of {len(results)} runs passed  (model: {model_label()}, {mode})")
     return pass_rate
 
 
@@ -289,7 +288,7 @@ def _save(results: "list[dict]", args: argparse.Namespace) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = RESULTS_DIR / f"{stamp}.json"
     path.write_text(json.dumps({
-        "model": settings.OPENROUTER_MODEL,
+        "model": model_label(),
         "mode": "live" if args.live else "replay",
         "max_tool_calls": settings.AGENT_MAX_TOOL_CALLS,
         "runs": [
