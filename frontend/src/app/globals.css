@@ -1,5 +1,147 @@
 @import "tailwindcss";
 
+/* Design tokens adapted from Beautiful UI (MIT, (c) 2026 Shane Levine,
+ * https://github.com/slev12397/beautiful-ui): a cool near-white canvas,
+ * white cards with hairline borders, layered low-opacity shadows, a
+ * neutral ink ramp, and semantic color used sparingly. Light theme only. */
+
+:root {
+  /* surfaces */
+  --page: oklch(0.985 0.001 286.376);
+  --canvas: oklch(0.961 0.002 247.84);
+  --surface: oklch(1 0 0);
+  --inset: oklch(0.979 0.002 247.839);
+  --hover: oklch(0.97 0.002 247.839);
+  --hover-2: oklch(0.933 0.003 247.86);
+
+  /* ink ramp */
+  --ink: oklch(0.247 0.006 258.361);
+  --ink-2: oklch(0.506 0.01 264.477);
+  --ink-3: oklch(0.6 0.009 264.505);
+
+  /* borders */
+  --line: oklch(0.946 0.003 264.542);
+  --line-strong: oklch(0.912 0.005 258.326);
+  --grid-line: color-mix(in srgb, var(--line) 78%, transparent);
+  --field: oklch(0.961 0.001 286.375);
+
+  /* accent */
+  --accent: oklch(0.626 0.205 254.947);
+  --accent-ink: oklch(0.556 0.187 255.617);
+  --accent-tint: oklch(0.96 0.019 252.878);
+
+  /* semantic */
+  --green: oklch(0.603 0.155 150.883);
+  --green-tint: oklch(0.958 0.017 159.118);
+  --orange: oklch(0.689 0.179 49.902);
+  --orange-tint: oklch(0.964 0.021 67.581);
+  --red: oklch(0.621 0.192 23.042);
+  --red-tint: oklch(0.956 0.017 17.462);
+
+  /* layered shadows (stand-ins for shadow-plugin's xs/sm/md/lg stacks) */
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.04), 0 2px 6px oklch(0 0 0 / 0.04);
+  --shadow-md: 0 2px 4px oklch(0 0 0 / 0.04), 0 6px 16px oklch(0 0 0 / 0.06);
+  --shadow-lg: 0 4px 8px oklch(0 0 0 / 0.05), 0 12px 32px oklch(0 0 0 / 0.08);
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-inset: var(--inset);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-hover: var(--hover);
+  --color-hover-2: var(--hover-2);
+  --color-field: var(--field);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-orange: var(--orange);
+  --color-orange-tint: var(--orange-tint);
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+
+  --shadow-hairline: 0 0 0 1px var(--line);
+  --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
+  --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
+  --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
+
+  /* radii: chips 6, controls 8, cards 10 */
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 10px;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 body {
-  @apply bg-white text-slate-900 antialiased;
+  background: var(--page);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* status tags: one hue per state, mixed toward the surface */
+.status-tag-done {
+  --tag-base: oklch(0.652 0.131 162.865);
+}
+.status-tag-failed {
+  --tag-base: oklch(0.65 0.17 23);
+}
+.status-tag-done,
+.status-tag-failed {
+  color: color-mix(in srgb, var(--tag-base) 80%, var(--ink));
+  background: color-mix(in srgb, var(--tag-base) 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tag-base) 34%, var(--surface));
+}
+
+@keyframes shimmer-text {
+  from {
+    background-position: 150% center;
+  }
+  to {
+    background-position: -50% center;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

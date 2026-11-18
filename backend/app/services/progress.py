@@ -41,9 +41,9 @@ class ProgressTracker:
         """Mark one step as currently running."""
         self._set_status(name, "running")
 
-    def finish_step(self, name: str) -> None:
-        """Mark one step as done."""
-        self._set_status(name, "done")
+    def finish_step(self, name: str, detail: Optional[str] = None) -> None:
+        """Mark one step as done, with an optional one-line finding."""
+        self._set_status(name, "done", detail)
 
     def finish(self, result: Optional[dict] = None) -> None:
         """Mark the whole investigation as finished, with its result."""
@@ -61,11 +61,13 @@ class ProgressTracker:
                 "result": self.result,
             }
 
-    def _set_status(self, name: str, status: str) -> None:
+    def _set_status(self, name: str, status: str, detail: Optional[str] = None) -> None:
         with self._lock:
             for step in self._steps:
                 if step["name"] == name:
                     step["status"] = status
+                    if detail is not None:
+                        step["detail"] = detail
                     return
 
 

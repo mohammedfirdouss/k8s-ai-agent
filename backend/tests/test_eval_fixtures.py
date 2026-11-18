@@ -145,3 +145,14 @@ def test_silent_crash_calibration_cap_lifts_only_when_cause_is_found():
         "The job does a sleep 20 loop and is OOM-killed with exit 137",
     ):
         assert not scored(guess, 95).passed, guess
+
+
+
+def test_progress_steps_report_their_findings():
+    tracker = ProgressTracker("test")
+    run_investigation(ReplayKubectl(fixture_path("multi")), tracker)
+    details = {step["name"]: step.get("detail") for step in tracker.snapshot()["steps"]}
+    assert details["Checking Pods"].startswith("3 unhealthy of ")
+    assert details["Reading Logs"] == "From 3 pods"
+    assert details["Checking Networking"] == "1 service without endpoints"
+    assert details["AI Reasoning"] is None  # set by the job, not evidence collection

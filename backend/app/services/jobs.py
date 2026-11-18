@@ -74,7 +74,7 @@ def _investigate(investigation_id: str, tracker: progress.ProgressTracker, user:
     # If even pod listing failed, the cluster itself is unreachable —
     # return a beginner-friendly message and skip AI reasoning.
     if evidence.get("pods", {}).get("error"):
-        tracker.finish_step("AI Reasoning")
+        tracker.finish_step("AI Reasoning", "Skipped: cluster unreachable")
         return {
             "investigation_id": investigation_id,
             "status": "error",
@@ -86,7 +86,7 @@ def _investigate(investigation_id: str, tracker: progress.ProgressTracker, user:
 
     tracker.start_step("AI Reasoning")
     diagnosis = analyze(evidence, kube)
-    tracker.finish_step("AI Reasoning")
+    tracker.finish_step("AI Reasoning", _diagnosis_summary(diagnosis))
 
     saved = history.save_investigation(
         investigation_id,
@@ -102,3 +102,13 @@ def _investigate(investigation_id: str, tracker: progress.ProgressTracker, user:
         "investigation": evidence,
         "saved": saved,
     }
+
+
+def _diagnosis_summary(diagnosis: dict) -> str:
+    """One-line outcome of the AI step, shown next to its progress step."""
+    if diagnosis.get("error"):
+        return "AI analysis unavailable"
+    count = len(diagnosis.get("incidents") or [])
+    if not count:
+        return "No problems found"
+    return f"{count} incident{'' if count == 1 else 's'} found"

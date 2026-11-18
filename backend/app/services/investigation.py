@@ -61,9 +61,39 @@ def _tracked_step(tracker: ProgressTracker, progress_name: str, name: str, step)
     logger.info("Investigation step: {}", name)
     tracker.start_step(progress_name)
     try:
-        return step()
+        result = step()
     except Exception as exc:  # noqa: BLE001 — one bad step must not kill the investigation
         logger.exception("Investigation step '{}' crashed", name)
-        return {"error": f"{type(exc).__name__}: {exc}"}
-    finally:
-        tracker.finish_step(progress_name)
+        result = {"error": f"{type(exc).__name__}: {exc}"}
+    tracker.finish_step(progress_name, step_summary(name, result))
+    return result
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
+def step_summary(section: str, result: dict) -> str:
+    """One-line finding of an evidence section, shown next to its progress step."""
+    if result.get("error"):
+        return "Could not check"
+    if section == "pods":
+        bad = len(result.get("problematic_pods", []))
+        return f"{bad} unhealthy of {result.get('total_pods', 0)}" if bad else _plural(result.get("total_pods", 0), "pod") + ", all healthy"
+    if section == "logs":
+        count = result.get("pods_with_logs", 0)
+        return f"From {_plural(count, 'pod')}" if count else "No unhealthy pods to read"
+    if section == "events":
+        found = result.get("total_findings", 0)
+        resolved = result.get("resolved_events_omitted", 0)
+        text = _plural(found, "warning") if found else "No active warnings"
+        return text + (f" ({resolved} resolved, ignored)" if resolved else "")
+    if section == "deployments":
+        bad = len(result.get("unhealthy_deployments", []))
+        total = result.get("total_deployments", 0)
+        return f"{bad} unavailable of {total}" if bad else _plural(total, "deployment") + ", all available"
+    if section == "network":
+        issues = len(result.get("issues", []))
+        text = _plural(issues, "service") + " without endpoints" if issues else _plural(result.get("total_services", 0), "service") + ", all reachable"
+        return text if result.get("dns_healthy", True) else text + "; cluster DNS down"
+    return ""

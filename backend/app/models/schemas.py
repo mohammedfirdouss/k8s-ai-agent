@@ -84,6 +84,8 @@ class ProgressStep(BaseModel):
     name: str
     # pending | running | done
     status: str
+    # One-line finding once done, e.g. "3 unhealthy of 42".
+    detail: Optional[str] = None
 
 
 class ClustersResponse(BaseModel):
